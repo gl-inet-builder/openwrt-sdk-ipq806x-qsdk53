@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-max44000
+Description: upm lib max44000
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-max44000
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

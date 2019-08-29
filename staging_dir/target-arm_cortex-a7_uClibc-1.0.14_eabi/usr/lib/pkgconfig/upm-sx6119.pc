@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-sx6119
+Description: upm lib sx6119
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-sx6119
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

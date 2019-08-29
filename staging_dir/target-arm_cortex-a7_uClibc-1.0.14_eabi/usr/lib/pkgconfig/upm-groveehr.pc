@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-groveehr
+Description: upm lib groveehr
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-groveehr
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

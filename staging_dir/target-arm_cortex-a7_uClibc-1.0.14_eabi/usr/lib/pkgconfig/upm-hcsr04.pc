@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-hcsr04
+Description: upm lib hcsr04
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-hcsr04
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-zfm20
+Description: upm lib zfm20
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-zfm20
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-bmpx8x
+Description: upm lib bmpx8x
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-bmpx8x
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

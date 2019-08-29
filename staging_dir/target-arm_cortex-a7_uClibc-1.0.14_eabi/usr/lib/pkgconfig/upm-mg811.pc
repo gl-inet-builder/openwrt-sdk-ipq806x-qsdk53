@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-mg811
+Description: upm lib mg811
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-mg811
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

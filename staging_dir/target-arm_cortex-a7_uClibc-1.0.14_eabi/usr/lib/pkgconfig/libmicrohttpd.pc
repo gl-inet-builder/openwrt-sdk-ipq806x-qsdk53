@@ -1,0 +1,13 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libmicrohttpd
+Description: A library for creating an embedded HTTP server
+Version: 0.9.38
+Requires:
+Conflicts:
+Libs: -L${libdir} -lmicrohttpd
+Libs.private: -lgnutls -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lgcrypt -lgpg-error  
+Cflags: -I${includedir}

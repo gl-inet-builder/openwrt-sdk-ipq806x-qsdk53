@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: ibrdtn
+Description: IBR-DTN Library
+Requires: ibrcommon  openssl zlib
+Version: 1.0.1
+Libs: -L${libdir} -librdtn 
+Cflags: -I${includedir}/ibrdtn-1.0

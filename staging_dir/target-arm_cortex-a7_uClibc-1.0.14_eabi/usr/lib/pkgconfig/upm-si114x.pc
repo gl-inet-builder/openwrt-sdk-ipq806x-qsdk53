@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-si114x
+Description: upm lib si114x
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-si114x
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

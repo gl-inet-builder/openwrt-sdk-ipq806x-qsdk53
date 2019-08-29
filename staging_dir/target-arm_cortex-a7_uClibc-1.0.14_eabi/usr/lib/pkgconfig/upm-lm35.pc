@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-lm35
+Description: upm lib lm35
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-lm35
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

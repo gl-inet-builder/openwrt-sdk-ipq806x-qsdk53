@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-ht9170
+Description: upm lib ht9170
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-ht9170
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

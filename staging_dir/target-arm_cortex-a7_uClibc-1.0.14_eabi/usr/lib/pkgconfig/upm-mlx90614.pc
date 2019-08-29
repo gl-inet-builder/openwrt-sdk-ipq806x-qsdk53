@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-mlx90614
+Description: upm lib mlx90614
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-mlx90614
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

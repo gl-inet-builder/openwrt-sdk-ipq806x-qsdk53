@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-cjq4435
+Description: upm lib cjq4435
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-cjq4435
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

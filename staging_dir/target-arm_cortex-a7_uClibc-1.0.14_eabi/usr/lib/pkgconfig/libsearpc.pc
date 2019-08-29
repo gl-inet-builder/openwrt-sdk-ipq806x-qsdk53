@@ -1,0 +1,11 @@
+prefix=/home/lancer/workspace/gl-image/qsdk53/build_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/libsearpc-3.1.7/ipkg-install/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libsearpc
+Description: Simple C rpc library
+Version: 1.2.2
+Libs: -L${libdir} -lsearpc
+Cflags: -I${includedir} -I${includedir}/searpc
+Requires: gobject-2.0 gio-2.0 jansson

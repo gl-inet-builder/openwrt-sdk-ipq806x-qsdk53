@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-rgbringcoder
+Description: upm lib rgbringcoder
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-rgbringcoder
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

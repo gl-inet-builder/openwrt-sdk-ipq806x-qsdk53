@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: ibrcommon
+Description: IBR Common C++ Library
+Requires:  libnl-3.0 libnl-route-3.0 libnl-genl-3.0 openssl
+Version: 1.0.1
+Libs: -L${libdir} -librcommon -lpthread 
+Cflags: -I${includedir}/ibrcommon-1.0 

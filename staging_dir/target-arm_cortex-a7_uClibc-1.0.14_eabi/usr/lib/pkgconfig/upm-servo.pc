@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-servo
+Description: upm lib servo
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-servo
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-l298
+Description: upm lib l298
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-l298
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

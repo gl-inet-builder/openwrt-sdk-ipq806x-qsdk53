@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-adafruitms1438
+Description: upm lib adafruitms1438
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-adafruitms1438
+Cflags: -I${includedir}/upm
+
+Requires: upm-pca9685
+Requires.private: 

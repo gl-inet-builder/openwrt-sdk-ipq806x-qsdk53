@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-my9221
+Description: upm lib my9221
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-my9221
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-rpr220
+Description: upm lib rpr220
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-rpr220
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

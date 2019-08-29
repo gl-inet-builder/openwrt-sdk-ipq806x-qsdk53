@@ -1,0 +1,6 @@
+conf
+mconf
+zconf.hash.c
+zconf.tab.c
+*.o
+

@@ -1,0 +1,11 @@
+prefix=/home/lancer/workspace/gl-image/qsdk53/build_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/seafile-server-4.1.2/ipkg-install/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libseafile
+Description: Client library for accessing seafile service.
+Version: 4.1.4
+Libs: -L${libdir} -lseafile -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lsearpc -lgio-2.0 -lgobject-2.0 -lglib-2.0 -ljansson
+Cflags: -I${includedir} -pthread -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include/searpc -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include/glib-2.0 -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib/glib-2.0/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include
+Requires: gobject-2.0 glib-2.0

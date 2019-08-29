@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-i2clcd
+Description: upm lib i2clcd
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-i2clcd
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

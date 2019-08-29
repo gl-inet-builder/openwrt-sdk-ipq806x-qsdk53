@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: dtndht
+Description: DTN DHT library (pure C)
+Requires:
+Version: 0.2.3
+Libs: -L${libdir} -ldtndht 
+Cflags: -I${includedir}/dtndht-0.2 -I${libdir}/dtndht-0.2/include 

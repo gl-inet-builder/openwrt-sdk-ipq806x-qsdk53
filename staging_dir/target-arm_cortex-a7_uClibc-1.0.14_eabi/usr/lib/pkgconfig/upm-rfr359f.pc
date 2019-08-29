@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-rfr359f
+Description: upm lib rfr359f
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-rfr359f
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

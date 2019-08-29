@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-st7735
+Description: upm lib st7735
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-st7735
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

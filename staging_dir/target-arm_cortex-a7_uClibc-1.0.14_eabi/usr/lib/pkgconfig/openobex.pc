@@ -1,0 +1,13 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+ 
+Name: OpenOBEX
+Description: Free implementation of the Object Exchange protocol
+Version: 1.7.1
+Requires.private:  libusb-1.0
+Libs: -L${libdir} -lopenobex
+Libs.private: 
+Cflags: -I${includedir}
+Cflags.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: vips
+Description: Image processing library
+Version: 7.42.1
+Requires.private:  glib-2.0 libxml-2.0 gmodule-2.0 gobject-2.0 libpng libexif
+Requires: gobject-2.0
+Libs: -L${libdir} -lvips 
+Libs.private:  -ljpeg
+Cflags: -I${includedir}
+

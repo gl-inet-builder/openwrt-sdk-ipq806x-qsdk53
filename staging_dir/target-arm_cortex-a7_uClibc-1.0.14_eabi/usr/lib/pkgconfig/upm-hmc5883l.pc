@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-hmc5883l
+Description: upm lib hmc5883l
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-hmc5883l
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

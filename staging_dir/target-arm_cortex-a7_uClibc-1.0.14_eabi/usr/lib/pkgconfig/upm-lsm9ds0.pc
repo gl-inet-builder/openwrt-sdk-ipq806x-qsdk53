@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-lsm9ds0
+Description: upm lib lsm9ds0
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-lsm9ds0
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-h3lis331dl
+Description: upm lib h3lis331dl
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-h3lis331dl
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

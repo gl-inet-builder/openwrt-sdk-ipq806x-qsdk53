@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-itg3200
+Description: upm lib itg3200
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-itg3200
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

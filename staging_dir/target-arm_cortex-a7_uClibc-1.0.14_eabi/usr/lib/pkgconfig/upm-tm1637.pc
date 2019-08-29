@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-tm1637
+Description: upm lib tm1637
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-tm1637
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

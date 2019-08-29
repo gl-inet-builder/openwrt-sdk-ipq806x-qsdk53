@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-nrf24l01
+Description: upm lib nrf24l01
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-nrf24l01
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-adis16448
+Description: upm lib adis16448
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-adis16448
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

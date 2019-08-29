@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-grovecollision
+Description: upm lib grovecollision
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-grovecollision
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-yg1006
+Description: upm lib yg1006
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-yg1006
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

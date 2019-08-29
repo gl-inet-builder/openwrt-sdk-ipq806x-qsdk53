@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-lpd8806
+Description: upm lib lpd8806
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-lpd8806
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

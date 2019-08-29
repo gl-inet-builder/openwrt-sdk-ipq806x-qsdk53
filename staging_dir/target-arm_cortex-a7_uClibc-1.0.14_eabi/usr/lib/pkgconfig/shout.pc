@@ -1,0 +1,15 @@
+# libshout pkg-config source file
+
+prefix=/usr
+exec_prefix=/usr
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+cppflags= -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include/tremor/
+cflags_only= -pthread
+
+Name: Shout
+Description: Audio streaming library for icecast encoders
+Version: 2.3.1
+Requires: ogg, vorbis, theora, speex
+Libs: -L${libdir} -lshout
+Cflags: -I${includedir}   -pthread

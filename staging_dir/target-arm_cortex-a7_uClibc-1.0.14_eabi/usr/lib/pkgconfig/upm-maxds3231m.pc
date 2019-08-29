@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-maxds3231m
+Description: upm lib maxds3231m
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-maxds3231m
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

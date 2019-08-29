@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-mpl3115a2
+Description: upm lib mpl3115a2
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-mpl3115a2
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

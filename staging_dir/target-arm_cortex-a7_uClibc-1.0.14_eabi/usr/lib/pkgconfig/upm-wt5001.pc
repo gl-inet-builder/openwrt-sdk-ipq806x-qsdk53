@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-wt5001
+Description: upm lib wt5001
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-wt5001
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 

@@ -1,0 +1,14 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: upm-sm130
+Description: upm lib sm130
+Version: 0.4.0
+
+Libs: -L${libdir} -lupm-sm130
+Cflags: -I${includedir}/upm
+
+Requires: 
+Requires.private: 
