@@ -1,4 +1,4 @@
-cmd_scripts/basic/bin2c := gcc -Wp,-MD,scripts/basic/.bin2c.d -O2 -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include  -o scripts/basic/bin2c scripts/basic/bin2c.c  
+cmd_scripts/basic/bin2c := gcc -Wp,-MD,scripts/basic/.bin2c.d -O2 -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include  -o scripts/basic/bin2c scripts/basic/bin2c.c  
 
 source_scripts/basic/bin2c := scripts/basic/bin2c.c
 

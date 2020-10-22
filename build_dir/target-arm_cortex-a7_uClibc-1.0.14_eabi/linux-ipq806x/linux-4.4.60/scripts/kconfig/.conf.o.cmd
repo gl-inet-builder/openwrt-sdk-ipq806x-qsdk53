@@ -1,4 +1,4 @@
-cmd_scripts/kconfig/conf.o := gcc -Wp,-MD,scripts/kconfig/.conf.o.d -O2 -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -DCURSES_LOC="<ncurses.h>" -DLOCALE   -c -o scripts/kconfig/conf.o scripts/kconfig/conf.c
+cmd_scripts/kconfig/conf.o := gcc -Wp,-MD,scripts/kconfig/.conf.o.d -O2 -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -DCURSES_LOC="<ncurses.h>" -DLOCALE   -c -o scripts/kconfig/conf.o scripts/kconfig/conf.c
 
 source_scripts/kconfig/conf.o := scripts/kconfig/conf.c
 
@@ -20,8 +20,8 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/ctype.h \
   /usr/include/x86_64-linux-gnu/bits/types.h \
   /usr/include/x86_64-linux-gnu/bits/typesizes.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/endian.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/byteswap.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/endian.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/byteswap.h \
   /usr/include/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap-16.h \
@@ -46,7 +46,7 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/x86_64-linux-gnu/bits/sigset.h \
   /usr/include/x86_64-linux-gnu/bits/time.h \
   /usr/include/x86_64-linux-gnu/bits/select2.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/sys/sysmacros.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/sys/sysmacros.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
   /usr/include/alloca.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
@@ -80,7 +80,7 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/assert.h \
   scripts/kconfig/list.h \
   /usr/lib/gcc/x86_64-linux-gnu/5/include/stdbool.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/libintl.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/libintl.h \
   scripts/kconfig/lkc_proto.h \
 
 scripts/kconfig/conf.o: $(deps_scripts/kconfig/conf.o)

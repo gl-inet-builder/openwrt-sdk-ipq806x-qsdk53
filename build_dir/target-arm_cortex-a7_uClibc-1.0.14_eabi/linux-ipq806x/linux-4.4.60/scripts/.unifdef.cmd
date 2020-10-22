@@ -1,4 +1,4 @@
-cmd_scripts/unifdef := gcc -Wp,-MD,scripts/.unifdef.d -O2 -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -I./tools/include  -o scripts/unifdef scripts/unifdef.c  
+cmd_scripts/unifdef := gcc -Wp,-MD,scripts/.unifdef.d -O2 -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -I./tools/include  -o scripts/unifdef scripts/unifdef.c  
 
 source_scripts/unifdef := scripts/unifdef.c
 
@@ -14,8 +14,8 @@ deps_scripts/unifdef := \
   /usr/include/x86_64-linux-gnu/bits/typesizes.h \
   /usr/include/time.h \
   /usr/lib/gcc/x86_64-linux-gnu/5/include/stddef.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/endian.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/byteswap.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/endian.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/byteswap.h \
   /usr/include/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap-16.h \
@@ -26,7 +26,7 @@ deps_scripts/unifdef := \
   /usr/include/x86_64-linux-gnu/bits/sigset.h \
   /usr/include/x86_64-linux-gnu/bits/time.h \
   /usr/include/x86_64-linux-gnu/bits/select2.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/sys/sysmacros.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/sys/sysmacros.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
   /usr/include/x86_64-linux-gnu/sys/stat.h \
   /usr/include/x86_64-linux-gnu/bits/stat.h \

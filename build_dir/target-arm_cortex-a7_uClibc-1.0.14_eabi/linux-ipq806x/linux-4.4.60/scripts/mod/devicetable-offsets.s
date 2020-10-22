@@ -17,11 +17,11 @@
 @ -I arch/arm/include/generated/uapi -I arch/arm/include/generated
 @ -I include -I ./arch/arm/include/uapi -I arch/arm/include/generated/uapi
 @ -I ./include/uapi -I include/generated/uapi
-@ -idirafter /home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include
+@ -idirafter /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include
 @ -D __KERNEL__ -D __LINUX_ARM_ARCH__=7 -U arm -D CC_HAVE_ASM_GOTO
 @ -D KBUILD_STR(s)=#s -D KBUILD_BASENAME=KBUILD_STR(devicetable_offsets)
 @ -D KBUILD_MODNAME=KBUILD_STR(devicetable_offsets)
-@ -isystem /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/include
+@ -isystem /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/include
 @ -include ./include/linux/kconfig.h
 @ -MD scripts/mod/.devicetable-offsets.s.d
 @ scripts/mod/devicetable-offsets.c -mlittle-endian -mabi=aapcs-linux
@@ -35,7 +35,8 @@
 @ -std=gnu90 -fno-strict-aliasing -fno-common -fno-PIE -fno-dwarf2-cfi-asm
 @ -fno-ipa-sra -funwind-tables -fno-delete-null-pointer-checks
 @ -fno-caller-saves -fstack-protector -fomit-frame-pointer
-@ -fno-var-tracking-assignments -fno-strict-overflow -fconserve-stack
+@ -fno-var-tracking-assignments -femit-struct-debug-baseonly
+@ -fno-var-tracking -fno-strict-overflow -fconserve-stack
 @ -ffunction-sections -fdata-sections -fverbose-asm
 @ --param allow-store-data-races=0
 @ options enabled:  -faggressive-loop-optimizations -fauto-inc-dec
@@ -70,9 +71,9 @@
 @ -ftree-parallelize-loops= -ftree-phiprop -ftree-pre -ftree-pta
 @ -ftree-reassoc -ftree-scev-cprop -ftree-sink -ftree-slp-vectorize
 @ -ftree-slsr -ftree-sra -ftree-switch-conversion -ftree-tail-merge
-@ -ftree-ter -ftree-vrp -funit-at-a-time -funwind-tables -fvar-tracking
-@ -fverbose-asm -fzero-initialized-in-bss -marm -mlittle-endian
-@ -msched-prolog -muclibc -munaligned-access -mvectorize-with-neon-quad
+@ -ftree-ter -ftree-vrp -funit-at-a-time -funwind-tables -fverbose-asm
+@ -fzero-initialized-in-bss -marm -mlittle-endian -msched-prolog -muclibc
+@ -munaligned-access -mvectorize-with-neon-quad
 
 	.text
 .Ltext0:
@@ -907,15 +908,15 @@ main:
 .Letext0:
 	.section	.debug_info,"",%progbits
 .Ldebug_info0:
-	.4byte	0x92
+	.4byte	0x8b
 	.2byte	0x4
 	.4byte	.Ldebug_abbrev0
 	.byte	0x4
 	.uleb128 0x1
-	.4byte	.LASF12
+	.4byte	.LASF11
 	.byte	0x1
+	.4byte	.LASF12
 	.4byte	.LASF13
-	.4byte	.LASF14
 	.4byte	.Ldebug_ranges0+0
 	.4byte	0
 	.4byte	.Ldebug_line0
@@ -953,7 +954,7 @@ main:
 	.4byte	.LASF6
 	.uleb128 0x2
 	.byte	0x4
-	.byte	0x7
+	.byte	0x5
 	.4byte	.LASF7
 	.uleb128 0x2
 	.byte	0x4
@@ -964,15 +965,11 @@ main:
 	.byte	0x8
 	.4byte	.LASF9
 	.uleb128 0x2
-	.byte	0x4
-	.byte	0x5
-	.4byte	.LASF10
-	.uleb128 0x2
 	.byte	0x1
 	.byte	0x2
-	.4byte	.LASF11
+	.4byte	.LASF10
 	.uleb128 0x4
-	.4byte	.LASF15
+	.4byte	.LASF14
 	.byte	0x1
 	.byte	0x8
 	.4byte	0x41
@@ -1076,16 +1073,28 @@ main:
 .LASF4:
 	.ascii	"unsigned int\000"
 .LASF14:
-	.ascii	"/home/lancer/workspace/gl-image/qsdk53/build_dir/ta"
-	.ascii	"rget-arm_cortex-a7_uClibc-1.0.14_eabi/linux-ipq806x"
-	.ascii	"/linux-4.4.60\000"
-.LASF15:
 	.ascii	"main\000"
-.LASF7:
+.LASF13:
+	.ascii	"/home/lancer/workspace/gl-image/qsdk53.git/build_di"
+	.ascii	"r/target-arm_cortex-a7_uClibc-1.0.14_eabi/linux-ipq"
+	.ascii	"806x/linux-4.4.60\000"
+.LASF8:
 	.ascii	"long unsigned int\000"
 .LASF6:
 	.ascii	"long long unsigned int\000"
-.LASF12:
+.LASF1:
+	.ascii	"unsigned char\000"
+.LASF9:
+	.ascii	"char\000"
+.LASF7:
+	.ascii	"long int\000"
+.LASF10:
+	.ascii	"_Bool\000"
+.LASF3:
+	.ascii	"short unsigned int\000"
+.LASF0:
+	.ascii	"signed char\000"
+.LASF11:
 	.ascii	"GNU C 4.8.3 -mlittle-endian -mabi=aapcs-linux -mno-"
 	.ascii	"thumb-interwork -mfpu=vfp -marm -march=armv7-a -mfl"
 	.ascii	"oat-abi=soft -mtls-dialect=gnu -g -Os -std=gnu90 -f"
@@ -1093,26 +1102,13 @@ main:
 	.ascii	"-cfi-asm -fno-ipa-sra -funwind-tables -fno-delete-n"
 	.ascii	"ull-pointer-checks -fno-caller-saves -fstack-protec"
 	.ascii	"tor -fomit-frame-pointer -fno-var-tracking-assignme"
-	.ascii	"nts -fno-strict-overflow -fconserve-stack -ffunctio"
-	.ascii	"n-sections -fdata-sections --param allow-store-data"
-	.ascii	"-races=0\000"
-.LASF1:
-	.ascii	"unsigned char\000"
-.LASF9:
-	.ascii	"char\000"
-.LASF10:
-	.ascii	"long int\000"
-.LASF11:
-	.ascii	"_Bool\000"
-.LASF3:
-	.ascii	"short unsigned int\000"
-.LASF0:
-	.ascii	"signed char\000"
-.LASF13:
+	.ascii	"nts -femit-struct-debug-baseonly -fno-var-tracking "
+	.ascii	"-fno-strict-overflow -fconserve-stack -ffunction-se"
+	.ascii	"ctions -fdata-sections --param allow-store-data-rac"
+	.ascii	"es=0\000"
+.LASF12:
 	.ascii	"scripts/mod/devicetable-offsets.c\000"
 .LASF2:
 	.ascii	"short int\000"
-.LASF8:
-	.ascii	"sizetype\000"
 	.ident	"GCC: (OpenWrt/Linaro GCC 4.8-2014.04 r48067) 4.8.3"
 	.section	.note.GNU-stack,"",%progbits

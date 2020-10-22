@@ -1,4 +1,4 @@
-cmd_scripts/kconfig/zconf.tab.o := gcc -Wp,-MD,scripts/kconfig/.zconf.tab.o.d -O2 -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include -DCURSES_LOC="<ncurses.h>" -DLOCALE  -Iscripts/kconfig -c -o scripts/kconfig/zconf.tab.o scripts/kconfig/zconf.tab.c
+cmd_scripts/kconfig/zconf.tab.o := gcc -Wp,-MD,scripts/kconfig/.zconf.tab.o.d -O2 -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/usr/include -Wall -Wmissing-prototypes -Wstrict-prototypes   -I/home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include -DCURSES_LOC="<ncurses.h>" -DLOCALE  -Iscripts/kconfig -c -o scripts/kconfig/zconf.tab.o scripts/kconfig/zconf.tab.c
 
 source_scripts/kconfig/zconf.tab.o := scripts/kconfig/zconf.tab.c
 
@@ -12,8 +12,8 @@ deps_scripts/kconfig/zconf.tab.o := \
   /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
   /usr/include/x86_64-linux-gnu/bits/types.h \
   /usr/include/x86_64-linux-gnu/bits/typesizes.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/endian.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/byteswap.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/endian.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/byteswap.h \
   /usr/include/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap.h \
   /usr/include/x86_64-linux-gnu/bits/byteswap-16.h \
@@ -40,7 +40,7 @@ deps_scripts/kconfig/zconf.tab.o := \
   /usr/include/x86_64-linux-gnu/bits/sigset.h \
   /usr/include/x86_64-linux-gnu/bits/time.h \
   /usr/include/x86_64-linux-gnu/bits/select2.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/sys/sysmacros.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/sys/sysmacros.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
   /usr/include/alloca.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
@@ -60,7 +60,7 @@ deps_scripts/kconfig/zconf.tab.o := \
     $(wildcard include/config/config.h) \
   /usr/include/assert.h \
   scripts/kconfig/list.h \
-  /home/lancer/workspace/gl-image/qsdk53/staging_dir/host/include/libintl.h \
+  /home/lancer/workspace/gl-image/qsdk53.git/staging_dir/host/include/libintl.h \
   /usr/include/locale.h \
   /usr/include/x86_64-linux-gnu/bits/locale.h \
   scripts/kconfig/lkc_proto.h \
