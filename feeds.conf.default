@@ -1,4 +1,4 @@
-src-git base https://gitlab.com/hansome/qsdk53_open.git
+src-git base https://github.com/gl-inet-builder/qsdk53_open.git
 src-git gli_pub https://github.com/gl-inet/gli-pub.git
 src-link packages ../feeds/base/qca/feeds/packages
 src-link networking ../feeds/base/qca/feeds/networking
