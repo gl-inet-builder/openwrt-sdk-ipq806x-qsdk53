@@ -1,0 +1,14 @@
+#!/bin/sh
+
+INTERFACES="wan wan1 wwan modem tethering wg ovpn"
+tmpinterface=`echo $INTERFACE | cut -f1 -d\_`
+[ -f "/etc/vpn.user" ] && {
+	for interface in ${INTERFACES}; do
+		[ "$interface" = "$INTERFACE" -o "$interface" = "$tmpinterface" ] && {
+			env -i ACTION="$ACTION" INTERFACE="$INTERFACE" DEVICE="$DEVICE" \
+				/bin/sh /etc/vpn.user
+		}
+	done
+}
+
+exit 0

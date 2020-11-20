@@ -1,0 +1,260 @@
+#!/bin/sh
+
+[ "$BUTTON" != "wps" ] && exit 0
+
+. /lib/functions/gl_util.sh
+
+random_psk=
+random_ssid=
+
+func_wps_on(){
+	local device disabled mode backhaul_ap role
+	config_get device "$1" device
+	config_get disabled "$1" disabled
+	config_get mode "$1" mode
+	config_get backhaul_ap "$1" backhaul_ap
+	role="`uci get repacd.repacd.Role`"
+	index=${device##wifi}
+	if [ "$mode" = "ap" -a "$disabled" != 1 -a "$backhaul_ap" = 1 -a "$role" = "CAP" ];then
+		wps_settings ${index}
+		iwpriv ath${index}1 hide_ssid 0
+	fi
+}
+
+wps_settings(){
+	local index
+	index=$1
+	if [ -z "`grep push_button /var/run/hostapd-ath${index}1.conf`" ]; then
+		local macaddr=$(cat /sys/class/net/br-lan/address)
+		uuid=$(echo "$macaddr" | sed 's/://g')
+		echo "eap_server=1
+wps_state=2
+ap_setup_locked=0
+device_type=6-0050F204-1
+device_name=OpenWrt AP
+manufacturer=openwrt.org
+model_name=WAP
+model_number=123
+serial_number=12345
+config_methods=push_button
+wps_independent=1
+uuid=87654321-9abc-def0-1234-$uuid">>/var/run/hostapd-ath${index}1.conf
+	fi
+	wpa_cli -g /var/run/hostapd/global raw REMOVE ath${index}1
+	wpa_cli -g /var/run/hostapd/global raw ADD bss_config=ath${index}1:/var/run/hostapd-ath${index}1.conf
+	hostapd_cli -i ath${index}1 -P /var/run/hostapd_cli-ath${index}1.pid -a /lib/wifi/wps-hostapd-update-uci -p /var/run/hostapd-wifi${index} -B
+	echo "timer" >/sys/class/leds/mesh_led/trigger
+	echo "250" >/sys/class/leds/mesh_led/delay_on
+	echo "250" >/sys/class/leds/mesh_led/delay_off
+}
+update_mac(){
+	local macaddr macaddr_la
+	config_get macaddr "$1" macaddr
+	macaddr_la=$(macaddr_setbit_la $macaddr)
+	uci set wireless.$1.macaddr=$macaddr_la
+	uci set wireless.$1.repacd_auto_create_vaps=0
+	uci commit wireless
+}
+
+set_up_backhaul_vap(){
+	local device=$1
+	uci batch <<EOF
+set wireless.bh_ap_$1=wifi-iface
+set wireless.bh_ap_$1.device=$1
+set wireless.bh_ap_$1.network='lan'
+set wireless.bh_ap_$1.mode='ap'
+set wireless.bh_ap_$1.disabled='0'
+set wireless.bh_ap_$1.repacd_security_unmanaged='1'
+set wireless.bh_ap_$1.wds='1'
+set wireless.bh_ap_$1.backhaul_ap='1'
+set wireless.bh_ap_$1.ssid=$random_ssid
+set wireless.bh_ap_$1.encryption='psk-mixed'
+set wireless.bh_ap_$1.blockdfschan='1'
+set wireless.bh_ap_$1.key=$random_psk
+set wireless.bh_ap_$1.athnewind='0'
+set wireless.bh_ap_$1.hidden='1'
+set wireless.bh_ap_$1.ifname=ath${device##wifi}1
+EOF
+	uci batch <<EOF
+set wireless.bh_sta_$1='wifi-iface'
+set wireless.bh_sta_$1.device=$1
+set wireless.bh_sta_$1.network='lan'
+set wireless.bh_sta_$1.mode='sta'
+set wireless.bh_sta_$1.disabled='0'
+set wireless.bh_sta_$1.repacd_security_unmanaged='1'
+set wireless.bh_sta_$1.wds='1'
+set wireless.bh_sta_$1.ssid=$random_ssid
+set wireless.bh_sta_$1.encryption='psk-mixed'
+set wireless.bh_sta_$1.key=$random_psk
+set wireless.bh_sta_$1.ifname=ath${device##wifi}2
+EOF
+	uci commit wireless
+}
+
+update_vap_config(){
+	uci set wireless.$1.backhaul_ap=0
+	uci set wireless.$1.backhaul=0
+	uci commit wireless
+}
+
+get_mesh_role() {
+	local role
+	[ "`swconfig dev switch0 show | grep port | grep "port:5 link:up" |wc -l`" -gt 0 ] && role=CAP || role=NonCAP
+	echo "$role"
+}
+
+mesh_role(){
+	local role
+	if [ "`uci get repacd.repacd.Enable`" = 0 ]; then
+		role=$(get_mesh_role)
+		uci set repacd.repacd.Role_real=$role
+		random_psk=`dd if=/dev/urandom bs=1 count=8 2> /dev/null | openssl base64 | tr -d '=' | tr -d '$'`
+		random_ssid=`dd if=/dev/urandom bs=1 count=9 2> /dev/null | openssl base64 | tr -d '=' | tr -d '$'`
+
+		uci set repacd.repacd.Enable=1
+		uci commit repacd
+
+		config_load wireless
+		config_foreach update_mac wifi-device
+		config_foreach update_vap_config wifi-iface
+		[ "$role" != "CAP" ] && random_psk="goodlife"
+		config_foreach set_up_backhaul_vap wifi-device
+
+		uci set hyd.Topology.ENABLE_NOTIFICATION_UNICAST=1
+		uci set hyd.Topology.PERIODIC_QUERY_INTERVAL=15
+		uci commit hyd
+
+		uci reorder wireless.guest2g=50
+		uci reorder wireless.guest5g=50
+
+		#disable guest wifi
+		uci delete wireless.guest5g
+		uci delete wireless.guest2g
+
+		uci commit wireless
+
+		if [ $role = "CAP" ]; then
+			touch /tmp/pairing_in_process
+
+			/etc/init.d/repacd start
+			echo 1 >/sys/class/leds/mesh_led/brightness
+		else
+
+			#uci set wireless.guest5g.disabled=1
+			#uci set wireless.guest2g.disabled=1
+			#uci commit wireless
+			/etc/init.d/lighttpd stop
+			/etc/init.d/lighttpd disable
+			/etc/init.d/gl_tertf stop
+			killall -9 gltertf
+			uci set dhcp.lan.ignore=1
+			uci commit dhcp
+			/etc/init.d/dnsmasq restart
+			uci set network.lan.ifname='eth0 eth1'
+			uci set network.lan.proto=dhcp
+			uci delete network.wan
+			uci delete network.tethering
+			uci delete network.modem_1_1
+			uci commit network
+			uci set glconfig.autoupdate.enable=0
+			uci commit glconfig
+			echo timer >/sys/class/leds/mesh_led/trigger
+			echo 250 >/sys/class/leds/mesh_led/delay_off
+			echo 250 >/sys/class/leds/mesh_led/delay_on
+			/etc/init.d/network restart
+			/etc/init.d/repacd start
+			ssdk_sh debug phy set 2 0 0x840; ssdk_sh debug phy set 3 0 0x840
+			sleep 0.5
+			ssdk_sh debug phy set 2 0 0x1240; ssdk_sh debug phy set 3 0 0x1240
+			echo 0 >/sys/class/leds/mesh_led/brightness
+		fi
+	fi
+}
+
+bridge_mode=$(uci -q get glconfig.bridge.mode)
+[ "$bridge_mode" = "ap" -o  "$bridge_mode" = "relay" -o "$bridge_mode" = "wds" ] && exit 0
+
+if [ "$ACTION" = "released" ]; then
+	lock -n /var/run/mesh_button.lock
+	[ $? = 1 ] && exit 0
+fi
+
+if [ "${ACTION}" = "released" -a "$BUTTON" = "wps" ]; then
+	lock -u /var/run/mesh_led.lock
+	killall -9 button_pressed
+	role="`uci get repacd.repacd.Role`"
+	if [ "$role" = "NonCAP" ]; then
+		echo 0 >/sys/class/leds/mesh_led/brightness
+	else
+		echo 1 >/sys/class/leds/mesh_led/brightness
+	fi
+elif [ "${ACTION}" = "pressed" -a "$BUTTON" = "wps" ]; then
+	lock /var/run/mesh_led.lock
+	/usr/bin/button_pressed MESH &
+fi
+
+if [ "$ACTION" = "released" -a "$BUTTON" = "wps" -a "$SEEN" -gt 8 ]; then
+	/usr/sbin/de_mesh.sh
+	/etc/init.d/gl_health start
+elif [ "$ACTION" = "released" -a "$BUTTON" = "wps" -a "$SEEN" -gt 3 ]; then
+	. /lib/functions.sh
+	. /lib/functions/system.sh
+
+	stop_nodogsplash
+	kill -9 $(pgrep -f 'gl_health') 2>/dev/null
+
+	[ "`uci get repacd.repacd.Enable`" = 0 ] && {    
+		if [ -f /etc/config.tar ]; then
+			rm /etc/config.tar
+		fi
+		
+		if [ "$(get_mesh_role)" = "CAP" ]; then
+			cd /etc
+			tar cf config.tar \
+			config/wireless \
+			config/network \
+			config/gl_son \
+			config/hyd \
+			config/lbd \
+			config/repacd \
+			config/wsplcd \
+			passwd passwd- shadow shadow- sysupgrade.conf
+		else
+			disable_all_vpn
+			stop_all_vpn
+			cd /etc
+			tar cf config.tar config passwd passwd- shadow shadow- openvpn sysupgrade.conf
+		fi
+	}
+	
+	uci delete wireless.sta
+
+	ssid_guest=$(uci get wireless.guest2g.ssid | sed 's/\"/\\\"/g')
+	encryption_guest=$(uci get wireless.guest2g.encryption)
+	key_guest=$(uci get wireless.guest2g.key | sed 's/\"/\\\"/g')
+	guest_disabled=$(uci get wireless.guest2g.disabled)
+	uci set wireless.guest5g.ssid="$ssid_guest"
+	uci set wireless.guest5g.encryption=$encryption_guest
+	uci set wireless.guest5g.key="$key_guest"
+	uci set wireless.guest5g.disabled=$guest_disabled
+
+	uci delete network.wwan
+	uci commit wireless
+	uci commit network
+	# echo "mesh" >/etc/glproduct
+	uci set glconfig.bridge='service'
+	uci set glconfig.bridge.mode='mesh'
+	uci commit glconfig
+	/etc/init.d/gl_health stop
+	mesh_role
+	killall hostapd_cli
+	config_load wireless
+	config_foreach func_wps_on wifi-iface
+fi
+
+if [ "$ACTION" = "released" && "$SEEN" -gt 3 ]; then
+	cloud_en=$(uci -q get glconfig.cloud.enable)
+	[ "$cloud_en" = "1" ] && ubus call mqtt notify &
+fi
+
+[ "$ACTION" = "released" ] && lock -u /var/run/mesh_button.lock

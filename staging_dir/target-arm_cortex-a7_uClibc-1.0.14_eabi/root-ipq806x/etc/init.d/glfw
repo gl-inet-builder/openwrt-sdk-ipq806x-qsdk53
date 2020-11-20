@@ -1,0 +1,138 @@
+#!/bin/sh /etc/rc.common
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+. /lib/mwan3/mwan3.sh
+. /lib/functions/gl_util.sh
+
+START=50
+USE_PROCD=1
+
+port_opening() 
+{
+	local proto port
+
+	config_get status "$1" status "Enabled"
+	[ "$status" = "Enabled" ] || return 0
+
+	config_get port "$1" port
+	config_get proto "$1" proto "all"
+
+	[ -z "$port" ] && return 0
+
+	#for p in ${proto}; do
+	if [ "$proto" = "UDP" ];then
+		$IPT_FILTER -I GL_SPEC_OPENING -p udp -m udp --dport $port -j ACCEPT 1>/dev/null 2>&1
+	elif [ "$proto" = "TCP" ];then
+		$IPT_FILTER -I GL_SPEC_OPENING -p tcp -m tcp --dport $port -j ACCEPT 1>/dev/null 2>&1
+	else
+		$IPT_FILTER -I GL_SPEC_OPENING -p udp -m udp --dport $port -j ACCEPT 1>/dev/null 2>&1
+		$IPT_FILTER -I GL_SPEC_OPENING -p tcp -m tcp --dport $port -j ACCEPT 1>/dev/null 2>&1
+	fi
+	#done
+}
+get_wan_interface()
+{
+	local wiface
+	model=$(get_model)
+	iface=`mwan3_report_policies_v4 2>/dev/null | grep % | awk '{print $1}'`
+	if [ "$iface" != "" ];then
+		for i in $iface; do
+			if [ "$i" = "wwan" ];then
+				if [ "$model" = "b1300" -o "$model" = "s1300" -o "$model" = "ap1300" -o "$model" = "b2200" ];then
+					WANIFACE="wlan-sta0"
+				elif [ "$model" = "mt300n-v2" -o "$model" = "vixmini" -o "$model" = "n300" ];then
+					WANIFACE="apcli0"
+				else
+					WANIFACE="wlan-sta"
+				fi
+			else
+				wiface=`uci get network.$i.ifname 2>/dev/null`
+			fi
+			WANIFACE="$WANIFACE $wiface"
+		done
+	fi
+    [ -n "$WANIFACE" ] && return 0
+
+    WANIFACE=`ip route get 8.8.8.8 | awk '{print $5}'`
+    [ -n "$WANIFACE" ] && return 0
+    WANIFACE=`uci get network.wwan.ifname 2>/dev/null`
+    [ -n "$WANIFACE" ] && return 0
+    WANIFACE=`uci get network.tethering.ifname 2>/dev/null`
+    [ -n "$WANIFACE" ] && return 0
+    WANIFACE=`uci get network.modem.ifname 2>/dev/null`
+    [ -n "$WANIFACE" ] && return 0
+    WANIFACE=`uci get network.modem1.ifname 2>/dev/null`
+}
+dmz_set() 
+{
+	local status dmzip WANIFACE
+
+	config_get status "$1" status "Enabled"
+	[ "$status" = "Enabled" ] || return 0
+
+	config_get dmzip "$1" dmzip
+
+	[ -z "$dmzip" ] && return 0
+	get_wan_interface
+	for i in $WANIFACE;do
+		$IPT_NAT -A GL_SPEC_DMZ -j DNAT -i $i --to-destination $dmzip 1>/dev/null 2>&1
+	done
+}
+flush_rules() 
+{
+	# delete GL_SPEC_OPENING
+	iptables -t filter -D INPUT -j GL_SPEC_OPENING 1>/dev/null 2>&1
+	iptables -t filter -F GL_SPEC_OPENING 1>/dev/null 2>&1
+	iptables -t filter -X GL_SPEC_OPENING 1>/dev/null 2>&1
+	# delete GL_SPEC_DMZ 
+	iptables -t nat -D PREROUTING -j GL_SPEC_DMZ 1>/dev/null 2>&1
+	iptables -t nat -F GL_SPEC_DMZ 1>/dev/null 2>&1
+	iptables -t nat -X GL_SPEC_DMZ 1>/dev/null 2>&1
+}
+ipt_rules() 
+{
+	if ! $IPT_FILTER -S GL_SPEC_OPENING &> /dev/null; then
+		$IPT_FILTER -N GL_SPEC_OPENING 1>/dev/null 2>&1
+	fi
+
+	if ! $IPT_NAT -S GL_SPEC_DMZ &> /dev/null; then
+		$IPT_NAT -N GL_SPEC_DMZ 1>/dev/null 2>&1
+	fi
+
+	$IPT_FILTER -I INPUT -j GL_SPEC_OPENING 1>/dev/null 2>&1
+	$IPT_NAT -I PREROUTING -j GL_SPEC_DMZ 1>/dev/null 2>&1
+
+	config_load glfw
+
+	config_foreach port_opening opening
+	config_foreach dmz_set dmz
+}
+service_triggers()
+{
+	procd_add_reload_trigger glfw
+}
+
+start_service() 
+{
+	mode=`uci get glconfig.bridge.mode 2>/dev/null`
+	if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+		exit 1
+	fi
+
+	local enabled
+	config_load glfw
+	config_get_bool enabled globals 'enabled' 0
+	[ "$enabled" = "0" ] && {
+		exit 0
+	}
+
+	IPT_NAT="iptables -t nat"
+	IPT_FILTER="iptables -t filter"
+	flush_rules
+	ipt_rules
+}
+stop_service() 
+{
+	flush_rules
+}

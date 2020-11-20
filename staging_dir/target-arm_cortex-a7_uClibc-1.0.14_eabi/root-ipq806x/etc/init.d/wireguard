@@ -1,0 +1,629 @@
+#!/bin/sh  /etc/rc.common
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+. /lib/functions/gl_util.sh
+
+START=99
+#USE_PROCD=1
+#PROC="/usr/bin/wg"
+WFILE="/var/etc/wireguard.conf"
+AllowIPV4=""
+AllowIPV6=""
+EXTRA_COMMANDS=downup
+
+model=$(get_model)
+guest_exist=$(check_guest_network_exist)
+openwrt_version=$(cat /etc/os-release |grep "VERSION_ID="|cut -d '"' -f 2)
+
+proxy_func()
+{
+	config_get main_server $1 "main_server" 
+	config_get enable $1 "enable" 
+}
+servers_func()
+{
+	config_get enable $1 "enable" 
+}
+
+peers_func()
+{
+	local name 
+	local private_key
+	local public_key
+	local preshared_key
+	local allowed_ips
+	local persistent_keepalive
+	local dns
+	local dns_ipv4
+	local dns_ipv6
+	local eport
+	local ipv6
+
+	config_get name $1 "name"
+	if [ "$name" != "" -a "$name" != "$main_server" ];then
+		continue;
+	else
+		existflag=1
+	fi
+	config_get address $1 "address"
+	config_get listen_port $1 "listen_port"
+	config_get private_key $1 "private_key"
+	config_get dns $1 "dns"
+	config_get end_point $1 "end_point"
+	config_get public_key $1 "public_key"
+	config_get preshared_key $1 "preshared_key"
+	config_get allowed_ips $1 "allowed_ips"
+	config_get persistent_keepalive $1 "persistent_keepalive"
+	config_get mtu $1 "mtu"
+
+	# Load whether to enable masquerading from the wireguard configuration
+	config_get masq $1 "masq"
+	if [ "$masq" == "" ];then
+		# Default is enabled
+		masq=1
+	fi
+
+	[ -z "$listen_port" ] && return
+	echo -e "ListenPort = $listen_port" >>"$WFILE"
+	if [ "$private_key" != "" ];then
+		echo -e "PrivateKey = $private_key\n" >>"$WFILE"
+	fi
+	echo -e "[Peer]" >>"$WFILE"
+	[ -n "$public_key" ] && echo -e "PublicKey = $public_key" >>"$WFILE"
+	[ -n "$preshared_key" ] && echo -e "PresharedKey = $preshared_key" >>"$WFILE"
+	[ -n "$allowed_ips" ] && echo -e "AllowedIPs = $allowed_ips" >>"$WFILE"
+	AllowIPV4=$(echo $allowed_ips|cut -d ',' -f 1)
+	AllowIPV6=$(echo $allowed_ips|cut -d ',' -f 2)
+	#[ -n "$end_point" ] && echo -e "Endpoint = $end_point" >> "$WFILE"
+	if [ "$persistent_keepalive" == "" ];then
+		echo -e "PersistentKeepalive = 25" >>"$WFILE"
+	else
+		echo -e "PersistentKeepalive = $persistent_keepalive" >>"$WFILE"
+	fi
+	publicip=$(echo $end_point | cut -d ":" -f1)
+	eport=$(echo $end_point | cut -d ":" -f2)
+	#echo "publicip=$publicip eport=$eport" >/dev/console
+	if [ "$publicip" != "" ];then
+		ip=$(resolveip $publicip | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v "127.0.0.1" | grep -v "::" | head -n 1)
+		if [ "$ip" = "" ];then
+			ip=$(nslookup $publicip 2>/dev/null | grep -v "127.0.0.1" | grep "::" | awk '/Address/ {print $3}')
+		fi
+		#echo "ip=$ip" >/dev/console
+		if [ "$ip" != "" ];then
+			echo -e "Endpoint = $ip:$eport" >> "$WFILE"
+		else
+			echo -e "Endpoint = $end_point" >> "$WFILE"
+		fi
+		oldhost=`uci get wireguard.@proxy[0].host`
+		if [ "$ip" != "" -a "$oldhost" != "$ip" ];then
+			uci set wireguard.@proxy[0].host="$ip"
+			uci commit wireguard
+		fi
+	fi	
+	if [ "$dns" != "" ];then
+		#mv /tmp/resolv.conf.auto /tmp/resolv.conf.auto.hold
+		ipv6=$(echo "$dns" | grep ":")
+		if [ "$ipv6" != "" ];then
+			dns_ipv4=$(echo $dns | cut -d "," -f1)
+			dns_ipv6=$(echo $dns | cut -d "," -f2)
+			echo -e "nameserver $dns_ipv6\nnameserver $dns_ipv4" > /tmp/resolv.conf.vpn
+		else
+			echo -e "nameserver $dns" > /tmp/resolv.conf.vpn
+		fi
+		uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.vpn'
+		uci commit dhcp
+		/etc/init.d/dnsmasq restart
+	else
+		echo -e "nameserver 209.244.0.3\nnameserver 64.6.64.6" > /tmp/resolv.conf.vpn
+		uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.vpn'
+		uci commit dhcp
+		/etc/init.d/dnsmasq restart
+	fi
+}
+
+get_localip_func()
+{
+	local name 
+
+	config_get name $1 "name"
+	if [ "$name" != "" -a "$name" != "$main_server" ];then
+		continue;
+	fi
+	config_get address $1 "address"
+	config_get dns $1 "dns"
+	config_get end_point $1 "end_point"
+	config_get AllowIP $1 "allowed_ips"
+	AllowIPV4=$(echo $AllowIP|cut -d ',' -f 1)
+	AllowIPV6=$(echo $AllowIP|cut -d ',' -f 2)
+	#echo "get_localip_func address=$address"
+}
+lan2wan_forwarding() 
+{
+	local src
+	local dest
+	local action="$1"
+	local sections=$(uci show firewall | sed -n 's/\(.*\)=forwarding/\1/p')
+
+	[ -n "$sections" ] || return 1
+
+	for section in $sections; do
+		src=$(uci get $section.src)
+		dest=$(uci get $section.dest)
+
+		if [ -n "$guest_exist" ];then
+			if [ "$src" = "guestzone" -a "$dest" = "wan" ];then
+				if [ "$action" = "enable" ];then
+					uci set $section.enabled="1"
+				elif [ "$action" = "disable" ]; then
+					[ -z "$AllowIPV4" -o  "$AllowIPV4" = "0.0.0.0/0"  ] && [-z "$AllowIPV6" -o  "$AllowIPV6" = "::/0" ] && uci set $section.enabled="0"
+				else
+					echo "Please add options: enable|disable"
+				fi
+			fi
+		fi
+		[ -n "$src" -a "$src" = "lan" -a -n "$dest" -a "$dest" = "wan" ] || continue
+
+		#echo "well"
+		if [ "$action" = "enable" ]; then
+			uci set $section.enabled="1"
+		elif [ "$action" = "disable" ]; then
+			[ -z "$AllowIP" -o  "$AllowIP" = "0.0.0.0/0"  ] && uci set $section.enabled="0"
+		else
+			echo "Please add options: enable|disable"
+		fi
+	done
+}
+
+wireguard_add_firewall()
+{
+	#echo "firewall local_port=$local_port"
+	# Listen Port Tcp/UDP
+	uci set firewall.AllowWireguard='rule'
+	uci set firewall.AllowWireguard.name='Allow-Wireguard'
+	uci set firewall.AllowWireguard.target='ACCEPT'
+	uci set firewall.AllowWireguard.src='wan'
+	uci set firewall.AllowWireguard.proto='udp tcp'
+	uci set firewall.AllowWireguard.family='ipv4'
+	uci set firewall.AllowWireguard.dest_port="$listen_port"
+	#zone
+	uci set firewall.wireguard='zone'
+	uci set firewall.wireguard.name='wireguard'
+	uci set firewall.wireguard.input='DROP'
+	uci set firewall.wireguard.forward='ACCEPT'
+	uci set firewall.wireguard.output='ACCEPT'
+	uci set firewall.wireguard.masq="$masq"
+	uci set firewall.wireguard.mtu_fix='1'
+	uci set firewall.wireguard.device='wg0'
+	uci set firewall.wireguard.masq6='1'
+	#forwarding wireguard to wan
+	uci set firewall.wireguard_wan='forwarding'
+	uci set firewall.wireguard_wan.src='wireguard'
+	uci set firewall.wireguard_wan.dest='wan'
+	#forwarding wireguard to lan
+	uci set firewall.wireguard_lan='forwarding'
+	uci set firewall.wireguard_lan.src='wireguard'
+	uci set firewall.wireguard_lan.dest='lan'
+	#forwarding lan to wireguard
+	uci set firewall.lan_wireguard='forwarding'
+	uci set firewall.lan_wireguard.src='lan'
+	uci set firewall.lan_wireguard.dest='wireguard'
+
+	if [ -n "$guest_exist" ];then
+		#forwarding guest to wireguard
+		uci set firewall.guest_wireguard='forwarding'
+		uci set firewall.guest_wireguard.src='guestzone'
+		uci set firewall.guest_wireguard.dest='wireguard'
+		#forwarding wireguard to guest
+		uci set firewall.wireguard_guest='forwarding'
+		uci set firewall.wireguard_guest.src='wireguard'
+		uci set firewall.wireguard_guest.dest='guestzone'
+	fi
+	uci commit firewall
+	/etc/init.d/firewall reload
+}
+wireguard_delete_firewall()
+{
+
+	uci delete firewall.AllowWireguard
+	uci delete firewall.wireguard
+	uci delete firewall.wireguard_wan
+	uci delete firewall.wireguard_lan
+	uci delete firewall.lan_wireguard
+
+	if [ -n "$guest_exist" ];then
+		uci delete firewall.guest_wireguard
+		uci delete firewall.wireguard_guest
+	fi
+	uci commit firewall
+	/etc/init.d/firewall reload
+}
+init_config()
+{
+	local main_server
+	local enable
+	rm -rf "$WFILE"
+	config_load wireguard
+	config_foreach proxy_func proxy
+	if [ "$enable" == "1" -a "$main_server" != "" ];then
+		ip link del dev wg0 1>/dev/null 2>&1 || true
+		echo "[Interface]" >"$WFILE"
+		config_foreach peers_func peers
+	else
+		rm /var/run/glwg.lock -rf
+		exit 1
+	fi
+}
+#service_triggers()
+#{
+	#procd_add_reload_trigger wireguard
+#}
+get_wan_nomwan3_info()
+{
+	local tmpiface
+	network_find_wan  tmpiface
+	network_get_gateway  gw $tmpiface
+	network_get_device interface $tmpiface
+	#echo "tmpiface=$tmpiface interface=$interface gw=$gw" >/dev/console
+}
+get_wan_iface_and_gateway()
+{
+
+	iface=$(cat /var/run/mwan3/indicator 2>/dev/null || echo "unknown")
+	[ "$iface" != "unknown" ] && {
+		interface=`ifstatus $iface | jsonfilter -e @.l3_device` #get ifanme
+		proto=`ifstatus $iface | jsonfilter -e @.proto`
+		result=$(echo $iface | grep "modem")
+		if [ "$result" != "" -a "$proto" = "qmi" ];then
+			gw=`ifstatus ${iface}_4  |jsonfilter -e  @.route[0].nexthop` #get gateway 
+		else
+			gw=`ifstatus $iface | jsonfilter -e @.route[0].nexthop`
+		fi
+		#interface=`uci get network.$iface.ifname`
+		#gw=$(route | grep default | grep $interface | awk '{print $2}')
+		#echo "iface=$iface interface=$interface gw=$gw" >/dev/console
+	}
+	[ "$iface" = "unknown" ] && {
+		get_wan_nomwan3_info
+		#echo "interface=$interface gw=$gw" >/dev/console
+	}
+}
+update_qos_rule()
+{
+	traffic=`uci get glconfig.traffic_control.enable 2>/dev/null`
+	qosflag=`cat /etc/config/glqos 2>/dev/null`
+	if [ "$traffic" = "1" -a "$qosflag" != "" ];then
+		/etc/init.d/glqos restart
+	fi
+}
+start()
+{
+	while [ 1 ];do                                          
+		[ ! -f /var/run/glwg.lock ] && break           
+		sleep 1                      
+	done                                                            
+	touch /var/run/glwg.lock
+	
+	local address
+	local address_ipv4
+	local address_ipv6
+	local listen_port
+	local end_point
+	local gw
+	local interface
+	local masq
+	local mtu
+	local existflag=0
+	local ipv6
+	
+	#ip link del dev wg0 1>/dev/null 2>&1 || true
+	init_config
+	[ "$existflag" = 0 ] && {
+		rm /var/run/glwg.lock -rf
+		exit 1
+	}
+	
+	local interface=`uci -q get system.@led[1].dev`
+	[ "$model" = "mv1000" ] && [ "$interface" != "wg0" ] &&{
+        uci set system.@led[1].dev='wg0'
+        uci commit system
+
+        sleep 1
+
+        /etc/init.d/system restart >> /dev/null
+        /etc/init.d/led restart >> /dev/null
+    }
+
+	get_wan_iface_and_gateway
+	#wireguard_delete_firewall
+	lan2wan_forwarding disable
+	wireguard_add_firewall
+
+	ip link add dev wg0 type wireguard
+	ipv6=$(echo "$address" | grep ":")
+	if [ "$ipv6" != "" ];then
+		address_ipv4=$(echo "$address" | cut -d "," -f1)
+		address_ipv6=$(echo "$address" | cut -d "," -f2)
+		ip addr add "$address_ipv4" dev wg0
+		ip -6 addr add "$address_ipv6" dev wg0
+	else
+		ip addr add "$address" dev wg0
+	fi
+	ip link set up dev wg0
+	if [ "$mtu" != "" ];then
+		ip link set mtu "$mtu" wg0
+	fi
+	#test timeout usage
+	timeout -t 5 pwd 1>/dev/null 2>&1
+        if [ "$?" = 1 ];then
+		timeout 5 wg setconf wg0 $WFILE
+	else
+		timeout -t 5 wg setconf wg0 $WFILE
+	fi
+	runflag=`echo $?`
+	if [ "$runflag" != 0 ];then
+		ip link del wg0
+		#wireguard_delete_firewall
+		[ -f "/tmp/resolv.conf.vpn" ] && {
+			rm -rf /tmp/resolv.conf.vpn
+			uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.auto'
+			uci commit dhcp
+			/etc/init.d/dnsmasq restart
+		}
+		#lan2wan_forwarding enable
+		rm -rf $WFILE
+		echo f >/proc/net/nf_conntrack
+		rm /var/run/glwg.lock -rf
+		if [ "$model" = "mv1000" ] ;then
+			/etc/init.d/network restart &
+		fi
+		exit 1
+	fi
+	
+	publicip=$(echo $end_point | cut -d ":" -f1)
+	rpublicip=`echo $publicip | grep "^[0-9]\{1,3\}\.\([0-9]\{1,3\}\.\)\{2\}[0-9]\{1,3\}"`
+	if [ "$rpublicip" != "" ];then
+		if [ "$publicip" != "$gw" ];then
+			ip route add $publicip via $gw dev $interface 1>/dev/null 2>&1
+		fi
+	else
+		if [ "$publicip" != "$gw" ];then
+			route add $publicip gw $gw dev $interface 1>/dev/null 2>&1
+		fi
+	fi
+	if [ -n "$AllowIPV4" -a  "$AllowIPV4" != "0.0.0.0/0"  ];then
+		ip route add "$AllowIPV4"  dev wg0
+	else
+		ip route add 0/1 dev wg0
+		ip route add 128/1 dev wg0
+	fi
+
+	if [ -n "$AllowIPV6" -a  "$AllowIPV6" != "::/0"  ];then
+		ip -6 route add "$AllowIPV6" dev wg0 metric 256 1>/dev/null 2>&1
+	else
+		ip -6 route add ::/0 dev wg0 metric 256 1>/dev/null 2>&1
+	fi
+	echo f >/proc/net/nf_conntrack
+	env -i ACTION="ifup" INTERFACE="wg" DEVICE="wg0" /sbin/hotplug-call iface
+	update_qos_rule
+	rm /var/run/glwg.lock -rf
+	if [ "$model" = "mv1000" ] ;then
+		sync;sleep 5;/etc/init.d/network restart &
+	fi
+
+	#fix ddns conflict
+	local DDNS=$(iptables -nL -t mangle | grep WG_DDNS)                    
+	local lanip=$(uci get network.lan.ipaddr)                                                                      
+	local gateway=${lanip%.*}.0/24         
+        if [ -z "$DDNS" ];then                                                                                         
+                iptables -t mangle -N WG_DDNS               
+                iptables -A WG_DDNS -t mangle -i br-lan -s $gateway -d $publicip -j MARK --set-mark 0x60000
+                iptables -t mangle -I PREROUTING -j WG_DDNS
+                ip rule add fwmark 0x60000/0x60000 lookup 31 pref 31
+                ip route add $publicip dev wg0 table 31       
+        fi                           
+
+}
+stop()
+{
+	while [ 1 ];do                                          
+		[ ! -f /var/run/glwg.lock ] && break           
+		sleep 1                      
+	done                                                            
+	touch /var/run/glwg.lock
+	
+	local main_server
+	local enable
+	local address
+	local dns
+	local end_point
+	local gw
+	local interface
+
+	config_load wireguard_server
+	config_foreach servers_func servers
+	if [ "$enable" == "1" ];then
+		rm /var/run/glwg.lock -rf
+		exit 1
+	fi
+
+	config_load wireguard
+	config_foreach proxy_func proxy
+	config_foreach get_localip_func peers
+	get_wan_iface_and_gateway
+
+	if [ -n "$AllowIPV4" -a  "$AllowIPV4" != "0.0.0.0/0"  ];then
+		ip route del "$AllowIPV4"  dev wg0
+	else
+		ip route del 0/1 dev wg0
+		ip route del 128/1 dev wg0
+	fi
+
+	if [ -n "$AllowIPV6" -a  "$AllowIPV6" != "::/0"  ];then
+		ip -6 route del "$AllowIPV6" dev wg0 metric 256 1>/dev/null 2>&1
+	else
+		ip -6 route del ::/0 dev wg0 metric 256 1>/dev/null 2>&1
+	fi
+
+	host=`uci get wireguard.@proxy[0].host`
+	if [ "$host" != "" ];then
+		ip route del $host 1>/dev/null 2>&1
+	else
+		publicip=$(echo $end_point | cut -d ":" -f1)
+		ip=$(resolveip $publicip | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v "127.0.0.1" | grep -v "::" | head -n 1)
+		#ip=$(resolveip $publicip | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -n 1)
+		if [ "$ip" = "" ];then
+			#ip=$(nslookup $publicip 2>/dev/null | awk '/Address 1/ {print $3}')
+			ip=$(nslookup $publicip 2>/dev/null | grep -v "127.0.0.1" | grep "::" | awk '/Address/ {print $3}')
+		fi
+		if [ "$ip" != "" ];then
+			ip route del $ip 1>/dev/null 2>&1
+		fi
+	fi
+
+	[ -f "/tmp/resolv.conf.vpn" ] && {
+	rm -rf /tmp/resolv.conf.vpn
+	uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.auto'
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+	}
+	#delete firewall
+	lan2wan_forwarding enable
+	wireguard_delete_firewall
+	#delete wg0
+	ip link del dev wg0 1>/dev/null 2>&1
+	rm $WFILE -rf
+	echo f >/proc/net/nf_conntrack
+	env -i ACTION="ifdown" INTERFACE="wg" /sbin/hotplug-call iface 
+	update_qos_rule
+	rm /var/run/glwg.lock -rf
+	if [ "$model" = "mv1000" ] ;then
+		sync
+	fi
+	#if [ "$model" = "mv1000" ] ;then
+	#	sleep 2;rmmod g_ether.ko;sleep 1;insmod g_ether.ko;/etc/init.d/network restart
+	#fi
+
+	#delete DDNS Chain                                                            
+	local DDNS=$(iptables -nL -t mangle | grep WG_DDNS)                                      
+	if [ -n "$DDNS" ];then                                  
+			ip rule del fwmark 0x60000/0x60000 lookup 31 pref 31           
+			iptables -t mangle -D PREROUTING -j WG_DDNS                       
+			iptables -t mangle -F WG_DDNS                               
+			iptables -t mangle -X WG_DDNS                                        
+	fi                                        
+}
+
+downup()
+{
+	while [ 1 ];do                                          
+		[ ! -f /var/run/glwg.lock ] && break           
+		sleep 1                      
+	done                                                            
+	touch /var/run/glwg.lock
+	
+	local address
+	local listen_port
+	local end_point
+	local gw
+	local interface
+	local masq
+	local mtu
+	local existflag=0
+	local model=$(get_model)
+
+	init_config
+	[ "$existflag" = 0 ] && {
+		rm /var/run/glwg.lock -rf
+		exit 1
+	}
+	get_wan_iface_and_gateway
+
+	ip link add dev wg0 type wireguard
+	ipv6=$(echo "$address" | grep ":")
+	if [ "$ipv6" != "" ];then
+		address_ipv4=$(echo "$address" | cut -d "," -f1)
+		address_ipv6=$(echo "$address" | cut -d "," -f2 | sed 's/ //g')
+		ip addr add "$address_ipv4" dev wg0
+		ip -6 addr add "$address_ipv6" dev wg0
+	else
+		ip addr add "$address" dev wg0
+	fi
+	ip link set up dev wg0
+	if [ "$mtu" != "" ];then
+		ip link set mtu "$mtu" wg0
+	fi
+        #test timeout usage
+        timeout -t 5 pwd 1>/dev/null 2>&1
+        if [ "$?" = 1 ];then
+		timeout 5 wg setconf wg0 $WFILE
+	else
+		timeout -t 5 wg setconf wg0 $WFILE
+	fi
+	runflag=`echo $?`
+	if [ "$runflag" != 0 ];then
+		ip link del wg0
+		#wireguard_delete_firewall
+		[ -f "/tmp/resolv.conf.vpn" ] && {
+			rm -rf /tmp/resolv.conf.vpn
+			uci set dhcp.@dnsmasq[0].resolvfile='/tmp/resolv.conf.auto'
+			uci commit dhcp
+			/etc/init.d/dnsmasq restart
+		}
+		#lan2wan_forwarding enable
+		rm -rf $WFILE
+		echo f >/proc/net/nf_conntrack
+		rm /var/run/glwg.lock -rf
+		if [ "$model" = "mv1000" ] ;then
+			/etc/init.d/network restart &
+		fi
+		exit 1
+	fi
+	publicip=$(echo $end_point | cut -d ":" -f1)
+	rpublicip=`echo $publicip | grep "^[0-9]\{1,3\}\.\([0-9]\{1,3\}\.\)\{2\}[0-9]\{1,3\}"`
+	if [ "$rpublicip" != "" ];then
+		if [ "$publicip" != "$gw" ];then
+			ip route add $publicip via $gw dev $interface 1>/dev/null 2>&1
+		fi
+	else
+		if [ "$publicip" != "$gw" ];then
+			route add $publicip gw $gw dev $interface 1>/dev/null 2>&1
+		fi
+	fi
+	if [ -n "$AllowIPV4" -a  "$AllowIPV4" != "0.0.0.0/0"  ];then
+		ip route add "$AllowIPV4"  dev wg0
+	else
+		ip route add 0/1 dev wg0
+		ip route add 128/1 dev wg0
+	fi
+
+	if [ -n "$AllowIPV6" -a  "$AllowIPV6" != "::/0"  ];then
+		ip -6 route add "$AllowIPV6" dev wg0 metric 256 1>/dev/null 2>&1
+	else
+		ip -6 route add ::/0 dev wg0 metric 256 1>/dev/null 2>&1
+	fi
+	
+	echo f >/proc/net/nf_conntrack
+	env -i ACTION="ifup" INTERFACE="wg" DEVICE="wg0" /sbin/hotplug-call iface 
+	update_qos_rule
+	rm /var/run/glwg.lock -rf
+	if [ "$model" = "mv1000" ] ;then
+		sync;sleep 5;/etc/init.d/network restart &
+	fi
+
+	local DDNS=$(iptables -nL -t mangle | grep WG_DDNS)                                                            
+	local lanip=$(uci get network.lan.ipaddr)                                                                      
+	local gateway=${lanip%.*}.0/24                                                
+	if [ -n "$DDNS" ];then                                                                             
+			ip rule del fwmark 0x60000/0x60000 lookup 31 pref 31
+			iptables -t mangle -D PREROUTING -j WG_DDNS         
+			iptables -t mangle -F WG_DDNS                                     
+			iptables -t mangle -X WG_DDNS                              
+	fi                                                                                             
+	iptables -t mangle -N WG_DDNS                               
+	iptables -A WG_DDNS -t mangle -i br-lan -s $gateway -d $publicip -j MARK --set-mark 0x60000
+	iptables -t mangle -I PREROUTING -j WG_DDNS                                
+	ip rule add fwmark 0x60000/0x60000 lookup 31 pref 31                     
+	ip route add $publicip dev wg0 table 31    
+}
+

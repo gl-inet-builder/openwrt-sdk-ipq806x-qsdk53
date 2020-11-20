@@ -1,0 +1,82 @@
+#!/bin/sh
+# 
+# Created on: Tue 11 Sep 2018 12:29:13 PM CST
+#     Author: lancer
+#      Email: luoyejiang0701@qq.com
+#
+. /lib/functions/gl_util.sh
+
+# 1.downloading
+# 2.download_failed
+# 3.download_ok
+# 4.verify_ok
+# 5.verify_failed
+# 6.upgrading
+# 7.upgrade_failed
+# 8.local_upgrade
+# 9.download_ipk
+# 10.download_ipk_failed
+
+firmware_path=$1
+upgrade_option=$2
+keepipk_option=""
+force_option=$3
+
+model=$(awk -F': ' '/machine/ {print tolower($NF)}' /proc/cpuinfo |cut -d- -f2-)
+if [ -n "$(check_support_save_installed_pkgs)" ]; then
+	keepipk_option="-k"
+fi
+
+[ "$upgrade_option" = "nil" ] && upgrade_option=""
+
+if [ "$upgrade_option" = "-f" ]; then
+	logger -t one_click_upgrade "Backup specified file."
+	tar -czf /tmp/sysupgrade.tar.gz \
+	/etc/config/wireless \
+	/etc/config/ssids \
+	/etc/config/glconfig \
+	/etc/passwd /etc/shadow 2>/dev/null
+fi
+
+firmware_size=$(awk 'NR==1 {print $4}' /tmp/firmware_list)
+firmware_md5sum=$(awk 'NR==1 {print $3}' /tmp/firmware_list)
+
+echo '1' > /tmp/upgrade_status
+logger -t one_click_upgrade "Begin download firmware......"
+
+curl -Ls --connect-timeout 5 $firmware_path -o /tmp/firmware.img >> /dev/null
+
+### Check firmware size
+actaual_firmware_size=$(ls -l /tmp/firmware.img | awk -F ' ' '{print $5}')
+if [ "$firmware_size" != "$actaual_firmware_size" ]; then
+	logger -t one_click_upgrade "Download firmware failed, try again......"
+	curl -Ls --connect-timeout 5 $firmware_path -o /tmp/firmware.img >> /dev/null
+fi
+
+### Check md5sum
+if [ "$model" = "x300b" -o "$model" = "mt1300" -o "$model" = "xe300" ];then
+	md5=$(sha256sum /tmp/firmware.img |awk '{print $1}')
+else
+	md5=$(md5sum /tmp/firmware.img |awk '{print $1}')
+fi
+if [ "$firmware_md5sum" != "$md5" ]; then
+	echo '2' > /tmp/upgrade_status
+	logger -t one_click_upgrade "Check the firmware md5sum failed, exit."
+	exit 0
+fi
+
+### Upgrading
+echo '6' > /tmp/upgrade_status
+logger -t one_click_upgrade "Begin to upgrading......"
+sleep 5
+/usr/bin/flashleds &
+if [ "$upgrade_option" = "-f" ]; then
+	logger -t one_click_upgrade "Keep the specified configuration file for upgrade."
+    /sbin/sysupgrade $keepipk_option $upgrade_option /tmp/sysupgrade.tar.gz /tmp/firmware.img
+else
+    /sbin/sysupgrade $keepipk_option $upgrade_option /tmp/firmware.img
+fi
+
+### If you run here, the upgrade failed.
+echo '7' > /tmp/upgrade_status
+logger -t one_click_upgrade "Upgrade failed, exit."

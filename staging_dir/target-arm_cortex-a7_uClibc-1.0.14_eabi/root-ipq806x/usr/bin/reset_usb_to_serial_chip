@@ -1,0 +1,8 @@
+#!/bin/sh
+
+GPIO=15
+
+echo 1 >/sys/class/gpio/gpio${GPIO}/value
+sleep   3
+echo 0 >/sys/class/gpio/gpio${GPIO}/value
+exit 0

@@ -1,4 +1,3 @@
-cfg80211.ko
 libc.so.1
 libcrypt-1.0.14.so
 libcrypt.so.1

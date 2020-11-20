@@ -34,6 +34,12 @@ extern int guci2_get_idx(struct uci_context* ctx,const char* section, int index,
 extern int guci2_get_name(struct uci_context* ctx,const char* section, const char* name, const char* key, char value[]);
 
 /**
+ * guci2_get("wireless.public", private)
+ * return UCI_OK when success
+ */
+extern int guci2_rename(struct uci_context *ctx, const char* section_or_key, char value[]);
+
+/**
  * guci2_commit("wireless")
  */
 extern int guci2_commit(struct uci_context* ctx,const char* config);
@@ -95,6 +101,8 @@ extern char *guci2_find_list_member(struct uci_context* ctx,const char* section_
  * @return section name, e.g. "public"
  */
 extern char *guci2_get_list_index(struct uci_context* ctx,const char* section_key, int index, char *buf);
+
+extern int guci2_get_list_count(struct uci_context* ctx, const char* section_key);
 
 #ifdef __cplusplus
 }

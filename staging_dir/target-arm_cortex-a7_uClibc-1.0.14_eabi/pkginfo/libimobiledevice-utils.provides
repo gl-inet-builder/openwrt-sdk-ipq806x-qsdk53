@@ -1,7 +1,7 @@
 libc.so.1
 libcrypt-1.0.14.so
 libcrypt.so.1
-libcrypto.so.1.0.0
+libcrypto.so.1.1
 libdl-1.0.14.so
 libdl.so.1
 libgcc_s.so.1
@@ -13,7 +13,7 @@ libplist.so.3
 libplist.so.3.0.0
 libpthread-1.0.14.so
 libpthread.so.1
-libssl.so.1.0.0
+libssl.so.1.1
 libuClibc-1.0.14.so
 libusbmuxd.so.4
 libusbmuxd.so.4.0.0

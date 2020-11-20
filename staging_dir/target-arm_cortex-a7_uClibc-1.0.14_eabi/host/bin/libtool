@@ -2,7 +2,7 @@
 
 # libtool - Provide generalized library-building support services.
 # Generated automatically by config.status (libtool) 2.4
-# Libtool was configured on host gl-inet:
+# Libtool was configured on host glinet:
 # NOTE: Changes made to this file will be lost: look at ltmain.sh.
 #
 #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
@@ -44,7 +44,7 @@ macro_version=2.4
 macro_revision=1.3293
 
 # Assembler program.
-AS="arm-openwrt-linux-uclibcgnueabi-gcc -c -Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft"
+AS="arm-openwrt-linux-uclibcgnueabi-gcc -c -Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft -Wl,-z,now -Wl,-z,relro"
 
 # DLL creation program.
 DLLTOOL="false"
@@ -81,19 +81,19 @@ build=x86_64-pc-linux-gnu
 build_os=linux-gnu
 
 # A sed program that does not truncate output.
-SED="/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/bin/sed"
+SED="/home/han/ib/q53_sdk.3/staging_dir/host/bin/sed"
 
 # Sed that helps us avoid accidentally triggering echo(1) options like -n.
 Xsed="$SED -e 1s/^X//"
 
 # A grep program that handles long lines.
-GREP="/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/bin/grep"
+GREP="/home/han/ib/q53_sdk.3/staging_dir/host/bin/grep"
 
 # An ERE matcher.
-EGREP="/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/bin/grep -E"
+EGREP="/home/han/ib/q53_sdk.3/staging_dir/host/bin/grep -E"
 
 # A literal string matcher.
-FGREP="/home/lancer/workspace/gl-image/qsdk53/staging_dir/host/bin/grep -F"
+FGREP="/home/han/ib/q53_sdk.3/staging_dir/host/bin/grep -F"
 
 # A BSD- or MS-compatible name lister.
 NM="arm-openwrt-linux-uclibcgnueabi-gcc-nm"
@@ -164,7 +164,7 @@ lock_old_archive_extraction=no
 LTCC="arm-openwrt-linux-uclibcgnueabi-gcc"
 
 # LTCC compiler flags.
-LTCFLAGS="-Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft "
+LTCFLAGS="-Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft -Wl,-z,now -Wl,-z,relro "
 
 # Take the output of nm and produce a listing of raw symbols and C names.
 global_symbol_pipe="sed -n -e 's/^.*[	 ]\\([ABCDGIRSTW][ABCDGIRSTW]*\\)[	 ][	 ]*\\([_A-Za-z][_A-Za-z0-9]*\\)\$/\\1 \\2 \\2/p' | sed '/ __gnu_lto/d'"
@@ -272,10 +272,10 @@ finish_eval=""
 hardcode_into_libs=yes
 
 # Compile-time system search path for libraries.
-sys_lib_search_path_spec="/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/arm-openwrt-linux-uclibcgnueabi/lib "
+sys_lib_search_path_spec="/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/arm-openwrt-linux-uclibcgnueabi/lib "
 
 # Run-time system search path for libraries.
-sys_lib_dlsearch_path_spec="/lib /usr/lib /usr/lib/x86_64-linux-gnu/libfakeroot /lib/i386-linux-gnu /usr/lib/i386-linux-gnu /lib/i686-linux-gnu /usr/lib/i686-linux-gnu /usr/local/lib /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu/mesa-egl /usr/lib/x86_64-linux-gnu/mesa /lib32 /usr/lib32 "
+sys_lib_dlsearch_path_spec="/lib /usr/lib /usr/lib/x86_64-linux-gnu/libfakeroot /usr/local/lib /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu/mesa-egl /usr/lib/x86_64-linux-gnu/mesa /lib32 /usr/lib32 /libx32 /usr/libx32 "
 
 # Whether dlopen is supported.
 dlopen_support=yes
@@ -10213,18 +10213,18 @@ file_list_spec=""
 hardcode_action=immediate
 
 # The directories searched by this compiler when creating a shared library.
-compiler_lib_search_dirs="/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib"
+compiler_lib_search_dirs="/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib"
 
 # Dependencies to place before and after the objects being linked to
 # create a shared library.
-predep_objects="/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib/crti.o /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/crtbeginS.o"
-postdep_objects="/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/crtendS.o /home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib/crtn.o"
+predep_objects="/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib/crti.o /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/crtbeginS.o"
+postdep_objects="/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/crtendS.o /home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib/crtn.o"
 predeps=""
 postdeps="-lstdc++ -lm -lgcc_s -lc -lgcc_s"
 
 # The library search path used internally by the compiler when linking
 # a shared library.
-compiler_lib_search_path="-L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib"
+compiler_lib_search_path="-L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3 -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/bin/../lib/gcc/arm-openwrt-linux-uclibcgnueabi/4.8.3/../../../../arm-openwrt-linux-uclibcgnueabi/lib"
 
 # ### END LIBTOOL TAG CONFIG: CXX
 

@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+SERVICE_USE_PID=1
+
+START=99
+
+start() {
+	access_port=$(uci get glconfig.general.port)
+	[ -n "$access_port" ] && {
+		sed -i "1s/^.*$/\$SERVER[\"socket\"] == \":$access_port\" \{/" /etc/lighttpd/conf.d/10-port.conf
+		sync
+	}
+	
+	listen_port=$(netstat -anp|grep :80|awk '{printf $7}'|cut -d/ -f1)
+        [ -n "$listen_port" ] && {
+                /etc/init.d/uhttpd stop
+                /etc/init.d/uhttpd disable
+        }
+
+	mkdir -m 0755 -p /var/log/lighttpd
+	service_start /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf
+}
+
+stop() {
+	rm /tmp/api.socket-0
+	service_stop /usr/sbin/lighttpd
+}

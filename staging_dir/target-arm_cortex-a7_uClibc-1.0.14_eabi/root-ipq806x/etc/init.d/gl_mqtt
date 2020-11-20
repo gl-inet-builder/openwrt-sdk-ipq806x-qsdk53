@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+# START=99
+# STOP=15
+
+START=99
+USE_PROCD=1
+
+start_service() {
+	mqtt_enable=$(uci -q get glconfig.cloud.enable)
+	if [ "$mqtt_enable" = "1" ]; then
+        	procd_open_instance "gl_mqtt_service"
+        	procd_set_param command "/usr/bin/gl_mqtt_service"
+        	procd_close_instance
+	fi
+}
+
+service_triggers() {
+    procd_add_reload_trigger "glconfig"
+}

@@ -1,0 +1,716 @@
+#!/bin/sh /etc/rc.common
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+
+START=99
+
+dns_via=""
+vpn_dns_via=""
+manul_dns=""
+ALL_DOMAIN_BYPASS=0
+ALL_MAC_BYPASS=0
+LOCAL_POLICY="forward"
+
+get_router_status()
+{
+	local ov wg ss mode
+    mode="$(uci get glconfig.bridge.mode)"
+    if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+        exit 1
+    fi
+	ov=$(uci get glconfig.openvpn.enable)
+	wg=$( uci get wireguard.@proxy[0].enable)
+	ss=$(pidof ss-redir)
+
+	[ "$ov" != "1" -a  "$wg" != "1" -a "$ss" = "" ] && {
+		rm /tmp/dnsmasq.d/resolvfile
+		rm /etc/resolv.conf
+		ln -s /tmp/resolv.conf /etc/resolv.conf
+	}
+}
+
+make_dir()
+{
+	mkdir -p /etc/route_policy/domain_name/via_vpn
+	mkdir -p /etc/route_policy/domain_name/bypass_vpn
+	mkdir -p /etc/route_policy/domain_name/whitelist
+	mkdir -p /etc/route_policy/domain_name/blacklist
+	mkdir -p /etc/route_policy/mac/via_vpn
+	mkdir -p /etc/route_policy/mac/bypass_vpn
+	mkdir -p /etc/route_policy/mac/whitelist
+	mkdir -p /etc/route_policy/mac/blacklist
+}
+
+#处理DNS分流，到上游DNS服务器的数据包保持原有的标记
+dns_conntrack()
+{
+	echo conntrack  >/tmp/dnsmasq.d/conntrack
+}
+
+make_ipset()
+{
+	ipset create gl_via_vpn_domain hash:net
+	ipset create gl_bypass_vpn_domain hash:net
+	ipset create gl_whitelist_domain hash:net
+	ipset create gl_blacklist_domain hash:net
+	ipset create gl_via_vpn_mac hash:mac
+	ipset create gl_bypass_vpn_mac hash:mac
+	ipset create gl_whitelist_mac hash:mac
+	ipset create gl_blacklist_mac hash:mac
+}
+
+flush_ipset()
+{
+	ipset flush gl_via_vpn_domain
+	ipset flush gl_bypass_vpn_domain
+	ipset flush gl_whitelist_domain
+	ipset flush gl_blacklist_domain
+	ipset flush gl_via_vpn_mac
+	ipset flush gl_bypass_vpn_mac
+	ipset flush gl_whitelist_mac
+	ipset flush gl_blacklist_mac
+}
+
+destroy_ipset()
+{
+	ipset destroy gl_via_vpn_domain
+	ipset destroy gl_bypass_vpn_domain
+	ipset destroy gl_whitelist_domain
+	ipset destroy gl_blacklist_domain
+	ipset destroy gl_via_vpn_mac
+	ipset destroy gl_bypass_vpn_mac
+	ipset destroy gl_whitelist_mac
+	ipset destroy gl_blacklist_mac
+}
+
+make_rule()
+{
+	ip rule add fwmark 0x80000/0x80000 lookup 52 pref 52
+	ip rule add fwmark 0x100000/0x100000 lookup 51 pref 51	
+}
+
+delete_rule()
+{
+	ip rule del fwmark 0x100000/0x100000 lookup 51 pref 51
+	ip rule del fwmark 0x80000/0x80000 lookup 52 pref 52
+}
+
+make_firewall()
+{
+	while [ true ];do
+		[ ! -f /var/run/fw3.lock ] && break
+		sleep 1
+	done
+	touch /var/run/fw3.lock
+	iptables -t mangle -N ROUTE_POLICY
+	iptables -t mangle -A PREROUTING -j ROUTE_POLICY
+	iptables -t nat -N ROUTE_POLICY
+	iptables -t nat -I PREROUTING 3 -j ROUTE_POLICY
+	
+	iptables -t mangle -N ROUTE_POLICY_LOCAL
+	iptables -t mangle -I OUTPUT  -j ROUTE_POLICY_LOCAL
+
+	iptables -N ROUTE_POLICY
+    local block_line="$(iptables  -L FORWARD   --line-numbers|grep GL_MAC_BLOCK|cut -d ' ' -f 1)"
+    if [ -n "$block_line" ];then
+        let block_line=block_line+1
+        iptables -I FORWARD "$block_line" -j ROUTE_POLICY
+    else
+        iptables -I FORWARD -j ROUTE_POLICY
+    fi
+	iptables -A ROUTE_POLICY  -i br-lan -m mark --mark 0x40000/0x40000 -j DROP
+	iptables -A ROUTE_POLICY  -i br-lan -m mark --mark 0x80000/0x80000  -j ACCEPT
+	iptables -A ROUTE_POLICY  -i br-guest -m mark --mark 0x40000/0x40000 -j DROP
+	iptables -A ROUTE_POLICY  -i br-guest -m mark --mark 0x80000/0x80000  -j ACCEPT	
+	rm /var/run/fw3.lock
+}
+
+local_policy()
+{
+	local manul_dns1=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d ' ' -f 1|cut -d '#' -f 1)
+	local manul_dns2=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d ' ' -f 2|cut -d '#' -f 1)
+	local policy=$(uci get glconfig.route_policy.local_policy)
+	iptables -t mangle  -F ROUTE_POLICY_LOCAL
+	iptables -t nat -C SS_SPEC_WAN_DG -j RETURN  2>/dev/null
+	[ ! "$?" = "0" ] && iptables -t nat -D SS_SPEC_WAN_DG -j RETURN
+	rm -f /etc/resolv.conf
+	[ "${policy}" = "bypass" ] && {
+		LOCAL_POLICY="bypass"
+		iptables -t mangle  -I ROUTE_POLICY_LOCAL -j MARK --set-mark 0x80000/0x80000
+		#强制来自dnsmasq的DNS请求走51号表
+		iptables -t mangle  -I ROUTE_POLICY_LOCAL -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle  -I ROUTE_POLICY_LOCAL -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		#处理SS客户端代理
+		iptables -t nat -C SS_SPEC_WAN_DG -j RETURN  2>/dev/null
+		[ ! "$?" = "0" ] && iptables -t nat -I SS_SPEC_WAN_DG -j RETURN
+		#有手动设置的DNS则使用手动设置的
+		if [ -n "$manul_dns1" -o -n "$manul_dns2" ];then
+			echo search lan > /etc/resolv.conf
+			[ -n "$manul_dns1" ] && echo nameserver $manul_dns1 >> /etc/resolv.conf
+			[ -n "$manul_dns2" ] && echo nameserver $manul_dns2 >> /etc/resolv.conf
+		return
+		elif [ -f /tmp/resolv.conf.auto ];then
+			cp /tmp/resolv.conf.auto /etc/resolv.conf
+		else
+			echo search lan > /etc/resolv.conf
+			echo nameserver 127.0.0.1 >> /etc/resolv.conf
+		fi
+	}
+	[ "${policy}" = "forward" -o "${policy}" = "" ] && {
+		#有手动设置的DNS则使用手动设置的
+		if [ -n "$manul_dns1" -o -n "$manul_dns2" ];then
+			echo search lan > /etc/resolv.conf
+			[ -n "$manul_dns1" ] && echo nameserver $manul_dns1 >> /etc/resolv.conf
+			[ -n "$manul_dns2" ] && echo nameserver $manul_dns2 >> /etc/resolv.conf
+		elif [ -f /tmp/resolv.conf.vpn ];then
+			cp /tmp/resolv.conf.vpn /etc/resolv.conf
+		else
+			echo search lan > /etc/resolv.conf
+			echo nameserver 127.0.0.1 >> /etc/resolv.conf
+		fi
+	}
+}
+
+guest_policy()
+{
+	local policy=$(uci get glconfig.route_policy.guest_policy 2>/dev/null)
+	[ "${policy}" = "bypass" ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-guest -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-guest -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-guest -j MARK --set-mark 0x80000/0x80000
+		#使用系统的DNS设置
+		if [ -n "$dns_via" ];then
+			iptables -t nat -A ROUTE_POLICY -i br-guest  -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-guest  -p udp --dport 53  -j DNAT --to $dns_via
+		fi
+	}
+
+	[ "${policy}" = "forward" -o "${policy}" = "" ] && {
+
+		[ -n "$vpn_dns_via" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-guest  -p tcp --dport 53  -j DNAT --to $vpn_dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-guest  -p udp --dport 53  -j DNAT --to $vpn_dns_via
+		}
+	}
+}
+
+all_bypass_policy()
+{
+	[ $ALL_DOMAIN_BYPASS = 1 -o $ALL_MAC_BYPASS = 1 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan  -j MARK --set-mark 0x80000/0x80000
+		[ -z "$manul_dns" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -p udp --dport 53  -j DNAT --to $dns_via
+		}
+	}
+}
+
+reload_firewall()
+{
+	local bypass_mac=$(ipset list gl_bypass_vpn_mac|grep -v "Number of entries:"|wc -l)
+	local via_mac=$(ipset list gl_via_vpn_mac|grep -v "Number of entries:"|wc -l)
+	local via_domain=$(cat /tmp/dnsmasq.d/via_domain)
+	local bypass_domain=$(cat /tmp/dnsmasq.d/bypass_domain)
+	
+	while [ true ];do
+		[ ! -f /var/run/fw3.lock ] && break
+		sleep 1
+	done
+	touch /var/run/fw3.lock
+	iptables -t mangle -F ROUTE_POLICY
+	iptables -t nat -F ROUTE_POLICY
+	
+	
+	#情况1，指定域名绕VPN,无MAC地址配置	
+	[ -n "$bypass_domain" ] && [ ! "$bypass_mac" -gt 7 ] && [ ! "$via_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，所有DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		#在大多数情况下，使用VPN DNS, 如果有手动配置DNS，该配置不生效
+		#echo resolv-file=/tmp/resolv.conf.vpn > /tmp/dnsmasq.d/resolvfile
+	}		
+	
+	#情况2，指定域名通过VPN,无MAC地址配置
+	[ -n "$via_domain" ] && [ ! "$bypass_mac" -gt 7 ] && [ ! "$via_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，所有DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		#echo resolv-file=/tmp/resolv.conf.auto > /tmp/dnsmasq.d/resolvfile
+	}
+	
+	#情况3，指定mac不走VPN，无域名配置
+	[ "$bypass_mac" -gt 7 ] && [ -z "$via_domain" ] && [ -z "$bypass_domain" ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		#指定客户端使用系统DNS
+		[ -n $dns_via ] && [ -z "$manul_dns" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src -p udp --dport 53  -j DNAT --to $dns_via
+		}
+		#echo resolv-file=/tmp/resolv.conf.vpn > /tmp/dnsmasq.d/resolvfile
+	}	
+
+	#情况4，指定mac走VPN，无域名配置
+	[ "$via_mac" -gt 7 ] && [ -z "$via_domain" ] && [ -z "$bypass_domain" ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		#指定客户端使用VPN DNS
+		[ -n $vpn_dns_via ]  && [ -z "$manul_dns" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_via_vpn_mac src -p tcp --dport 53  -j DNAT --to $vpn_dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_via_vpn_mac src -p udp --dport 53  -j DNAT --to $vpn_dns_via		
+		}
+		#其他客户端使用系统DNS
+		[ -n $dns_via ] && [ -z "$manul_dns" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src -p udp --dport 53  -j DNAT --to $dns_via
+		}
+		#echo resolv-file=/tmp/resolv.conf.auto > /tmp/dnsmasq.d/resolvfile	
+	}		
+	
+	#情况5，指定域名绕开VPN,指定MAC不走VPN	
+	[ -n "$bypass_domain" ] && [ "$bypass_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53 -m set ! --match-set gl_bypass_vpn_mac  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53 -m set ! --match-set gl_bypass_vpn_mac  -j MARK --set-mark 0x100000/0x100000
+		[ -n $dns_via ] && [ -z "$manul_dns" ] && {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src -p udp --dport 53  -j DNAT --to $dns_via
+		}		
+		#echo resolv-file=/tmp/resolv.conf.vpn > /tmp/dnsmasq.d/resolvfile
+	}	
+	
+	#情况6，指定域名绕开VPN,指定MAC走VPN		
+	[ -n "$bypass_domain" ] && [ "$via_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53 -m set ! --match-set gl_bypass_vpn_mac  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53 -m set ! --match-set gl_bypass_vpn_mac  -j MARK --set-mark 0x100000/0x100000
+		[ -n $dns_via ] && [ -z "$manul_dns" ] &&  {
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src -p tcp --dport 53  -j DNAT --to $dns_via
+			iptables -t nat -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src -p udp --dport 53  -j DNAT --to $dns_via
+		}		
+		#echo resolv-file=/tmp/resolv.conf.vpn > /tmp/dnsmasq.d/resolvfile		
+	}	
+	
+	#情况7，指定域名通过VPN,指定MAC不走VPN		
+	[ -n "$via_domain" ] && [ "$bypass_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_bypass_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，所有DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		#echo resolv-file=/tmp/resolv.conf.auto > /tmp/dnsmasq.d/resolvfile
+	}
+
+	#情况8，指定域名通过VPN,指定MAC走VPN		
+	[ -n "$via_domain" ] && [ "$via_mac" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_mac src  -j MARK --set-mark 0x80000/0x80000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_via_vpn_domain dst  -j MARK --set-mark 0x80000/0x80000
+		#处理DNS分流，所有DNS请求标记为0x100000,走51号表
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p tcp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -p udp --dport 53  -j MARK --set-mark 0x100000/0x100000
+		#echo resolv-file=/tmp/resolv.conf.auto > /tmp/dnsmasq.d/resolvfile
+	}
+	
+	#处理SS客户端代理
+	iptables -t nat -C SS_SPEC_LAN_DG -m mark --mark 0x80000/0x80000 -j RETURN  2>/dev/null
+	[ ! "$?" = "0" ] && iptables -t nat -I SS_SPEC_LAN_DG -m mark --mark 0x80000/0x80000 -j RETURN
+	
+	#添加本机策略
+	local_policy
+
+	#添加guest策略
+	guest_policy
+	
+	#添加 all bypass 策略
+	all_bypass_policy
+	
+	#黑白名单
+	[ "$(ipset list gl_whitelist_mac|grep -v "Number of entries:"|wc -l)" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_whitelist_mac src  -j MARK --set-mark 0x40000/0x40000
+	}
+	[ "$(ipset list gl_blacklist_mac|grep -v "Number of entries:"|wc -l)" -gt 7 ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_blacklist_mac src  -j MARK --set-mark 0x40000/0x40000
+	}	
+	[ -n "$(cat /tmp/dnsmasq.d/whitelist_domain)" ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set ! --match-set gl_whitelist_domain dst  -j MARK --set-mark 0x40000/0x40000
+	}
+	[ -n "$(cat /tmp/dnsmasq.d/blacklist_domain)" ] && {
+		iptables -t mangle -A ROUTE_POLICY -i br-lan -m set --match-set gl_blacklist_domain dst  -j MARK --set-mark 0x40000/0x40000
+	}
+		iptables -t mangle -A ROUTE_POLICY -j CONNMARK --save-mark --nfmask 0x1c0000 --ctmask 0x1c0000
+
+	rm /var/run/fw3.lock
+}
+
+delete_firewall()
+{
+	while [ true ];do
+		[ ! -f /var/run/fw3.lock ] && break
+		sleep 1
+	done
+	touch /var/run/fw3.lock
+	iptables -D FORWARD -j ROUTE_POLICY
+	iptables -F ROUTE_POLICY
+	iptables -X ROUTE_POLICY
+
+	iptables -t mangle  -D PREROUTING -j ROUTE_POLICY
+	iptables -t mangle  -F ROUTE_POLICY
+	iptables -t mangle  -X ROUTE_POLICY
+	
+	iptables -t mangle  -D OUTPUT -j ROUTE_POLICY_LOCAL
+	iptables -t mangle  -F ROUTE_POLICY_LOCAL
+	iptables -t mangle  -X ROUTE_POLICY_LOCAL
+	
+	iptables -t nat  -D PREROUTING -j ROUTE_POLICY
+	iptables -t nat  -F ROUTE_POLICY
+	iptables -t nat  -X ROUTE_POLICY
+	
+	#处理SS客户端代理
+	iptables -t nat -C SS_SPEC_LAN_DG -m mark --mark 0x80000/0x80000 -j RETURN  2>/dev/null
+	[ "$?" = "0" ] && iptables -t nat -D SS_SPEC_LAN_DG -m mark --mark 0x80000/0x80000 -j RETURN
+	iptables -t nat -C SS_SPEC_WAN_DG -j RETURN  2>/dev/null
+	[ ! "$?" = "0" ] && iptables -t nat -D SS_SPEC_WAN_DG -j RETURN	
+	
+	rm /var/run/fw3.lock
+}
+
+#处理DNS分流，必须确保到DNS服务器的请求能够找到正确的路径，带有标记0x100000的数据包通过51号路由表，在iface热插拔事件时，应该检查该路由表是否变化
+load_dns_route()
+{
+	local vpn_dns=$(cat /tmp/resolv.conf.vpn 2>/dev/null |grep nameserver|grep -v :|cut -d ' ' -f 2)
+	local manul_dns1=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d ' ' -f 1|cut -d '#' -f 1)
+	local manul_dns2=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d ' ' -f 2|cut -d '#' -f 1)
+	local dev=""
+	
+	
+	#TODO:手动设置DNS的时候，策略跟随本地策略
+	[ -n "$manul_dns1" ] && {
+		if [ "$LOCAL_POLICY" = "bypass" ];then
+			dev=""
+		else
+			dev=$(ip route get ${manul_dns1}|grep dev)
+		fi
+			
+		[ -n "$dev" ] && ip route add ${dev} table 51
+	}
+
+	[ -n "$manul_dns2" ] && {
+		if [ "$LOCAL_POLICY" = "bypass" ];then
+			dev=""
+		else
+			dev=$(ip route get ${manul_dns2}|grep dev)
+		fi
+			
+		[ -n "$dev" ] && ip route add ${dev} table 51
+	}
+	
+	#TODO:手动设置DNS的时候，还需不需要其他的DNS配置?
+	IFS_sav=$IFS
+	IFS=$'\n\n'
+	[ -n "$vpn_dns" ] && {
+		for i in $vpn_dns ;do
+			dev=$(ip route get ${i}|grep dev|awk -F "dev " '{print $2}'|cut -d ' ' -f 1)
+			[ -n "$dev" ] && ip route add ${i} dev ${dev} table 51
+		done
+	}
+
+	IFS=$IFS_sav
+	
+}
+
+flush_route()
+{
+	ip route flush table 51
+	ip route flush table 52
+}
+
+check_string_is_ip()
+{
+	regex="\b(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[1-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]\
+[0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[1-9])\b"
+	check=`echo $1 | egrep $regex`
+	[ -z "$check" ] && {
+	   return 0
+	}
+	   return 1
+}
+
+check_string_is_ip_range()
+{
+	regex="\b(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[1-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9]\
+[0-9]|[1-9][0-9]|[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])/([1-9]|1[0-9]|2[0-9]|3[0-2])\b"
+	check=`echo $1 | egrep $regex`
+	[ -z "$check" ] && {
+	   return 0
+	}
+	   return 1
+}
+
+
+prase_bypass_via_domain()
+{
+	local ipset_list="gl_bypass_vpn_domain"
+	local dns_conf="bypass_domain"
+	[ "$2" = "via" ] && {
+		dns_conf="via_domain"
+		ipset_list="gl_via_vpn_domain"
+	}
+	[ -n "${dns_via}" ] && [ ! "$2" = "via" ] && {
+		sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|cut -d '/' -f 1|sort -u|sed "s/..*/server=\/&\/${dns_via}/" >>/tmp/dnsmasq.d/${dns_conf}
+	}
+	[ -n "${vpn_dns_via}" ] && [ "$2" = "via" ] && {
+		sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|cut -d '/' -f 1|sort -u|sed "s/..*/server=\/&\/${vpn_dns_via}/" >>/tmp/dnsmasq.d/${dns_conf}
+	}
+	sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|cut -d '/' -f 1|sort -u|sed "s/..*/ipset=\/&\/${ipset_list}/" >>/tmp/dnsmasq.d/${dns_conf}
+	
+	local ip_buf="$(sed -n "/[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+/p" ${1}|sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|sort -u)"
+	for tmp in ${ip_buf}
+	do
+		check_string_is_ip_range ${tmp}
+		[ $? == 1 ] && {
+		ipset add ${ipset_list} ${tmp}
+		continue
+		}
+		tmp="$(echo $tmp|cut -d '/' -f 1)"
+		check_string_is_ip ${tmp}
+		[ $? == 1 ] && {
+		ipset add ${ipset_list} ${tmp}
+		}
+	done
+}
+
+fill_bypass_via_domain()
+{
+	local only_mac=$(uci get glconfig.route_policy.type)
+	ipset flush gl_bypass_vpn_domain
+	ipset flush gl_via_vpn_domain
+	echo -n "" >/tmp/dnsmasq.d/bypass_domain
+	echo -n "" >/tmp/dnsmasq.d/via_domain
+
+	[ "$only_mac" = "mac_bypass" -o "$only_mac" = "mac_via" ] && return
+	
+	local ALL=$(cat /etc/route_policy/domain_name/bypass_vpn/manual-list.conf 2>/dev/null)
+	[ "$ALL" = "all" ] && {
+		ALL_DOMAIN_BYPASS=1
+		return
+	}
+	for file in $(ls /etc/route_policy/domain_name/bypass_vpn/) 
+	do
+		prase_bypass_via_domain /etc/route_policy/domain_name/bypass_vpn/${file} bypass
+	done
+	
+	for file in $(ls /etc/route_policy/domain_name/via_vpn/) 
+	do
+		prase_bypass_via_domain /etc/route_policy/domain_name/via_vpn/${file} via
+	done	
+}
+
+prase_mac()
+{
+	local ipset_list="gl_bypass_vpn_mac"
+	[ "$2" = "via" ] && {
+		ipset_list="gl_via_vpn_mac"
+	}
+	[ "$2" = "black" ] && {
+		ipset_list="gl_blacklist_mac"
+	}
+	[ "$2" = "white" ] && {
+		ipset_list="gl_whitelist_mac"
+	}
+    buff=$(sed  "s/[\r \t]//g" $1|sort -u)                                                                      
+    IFS_sav=$IFS                                                                         
+    IFS=$'\n\n'                                                                          
+    for line in $buff                                                                    
+    do                                                                                   
+        IFS=$IFS_sav  
+		ipset add $ipset_list $line                      
+		IFS=$'\n\n'
+    done
+}
+
+
+fill_mac()
+{
+	local only_domain=$(uci get glconfig.route_policy.type)
+	ipset flush gl_bypass_vpn_mac
+	ipset flush gl_via_vpn_mac
+	ipset flush gl_blacklist_mac
+	ipset flush gl_whitelist_mac
+
+	[ "$only_domain" = "domain_bypass" -o "$only_domain" = "domain_via" ] && return
+	
+	local ALL=$(cat /etc/route_policy/mac/bypass_vpn/manual-list.conf 2>/dev/null)
+	[ "$ALL" = "all" ] && {
+		ALL_MAC_BYPASS=1
+		return
+	}
+
+	for file in $(ls /etc/route_policy/mac/bypass_vpn/)                          
+    do                                                                                   
+         prase_mac /etc/route_policy/mac/bypass_vpn/${file} bypass
+    done 
+	
+	for file in $(ls /etc/route_policy/mac/via_vpn/)                          
+    do                                                                                   
+         prase_mac /etc/route_policy/mac/via_vpn/${file} via
+    done 
+
+	for file in $(ls /etc/route_policy/mac/blacklist/)                          
+    do                                                                                   
+         prase_mac /etc/route_policy/mac/blacklist/${file} black
+    done 
+
+	for file in $(ls /etc/route_policy/mac/whitelist/)                          
+    do                                                                                   
+         prase_mac /etc/route_policy/mac/whitelist/${file} white
+    done 		
+}
+
+prase_white_black_list_domain()
+{
+	local ipset_list="gl_whitelist_domain"
+	local dns_conf="whitelist_domain"
+	[ "$2" = "black" ] && {
+		dns_conf="blacklist_domain"
+		ipset_list="gl_blacklist_domain"
+	}
+	
+	[ -n "${dns_via}" ] && {
+		sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|cut -d '/' -f 1|sort -u|sed "s/..*/server=\/&\/${dns_via}/" >>/tmp/dnsmasq.d/${dns_conf}
+	}
+	sed  "s/[\r \t]\|https:\/\/\|http:\/\///g" ${1}|cut -d '/' -f 1|sort -u|sed "s/..*/ipset=\/&\/${ipset_list}/" >>/tmp/dnsmasq.d/${dns_conf}	
+
+	local ip_buf="$(sed -n "/[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+/p" ${1}|sort -u)"
+	for tmp in ${ip_buf}
+	do
+		check_string_is_ip_range ${tmp}
+		[ $? == 1 ] && {
+		ipset add ${ipset_list} ${tmp}
+		continue
+		}
+		tmp="$(echo $tmp|cut -d '/' -f 1)"
+		check_string_is_ip ${tmp}
+		[ $? == 1 ] && {
+		ipset add ${ipset_list} ${tmp}
+		}
+	done
+
+}
+
+fill_white_black_list_domain()
+{
+	local only_mac=$(uci get glconfig.route_policy.type)
+	ipset flush gl_whitelist_domain
+	ipset flush gl_blacklist_domain
+	echo -n "" >/tmp/dnsmasq.d/whitelist_domain
+	echo -n "" >/tmp/dnsmasq.d/blacklist_domain
+
+	[ "$only_mac" = "mac_bypass" -o "$only_mac" = "mac_via" ] && return
+
+	for file in $(ls /etc/route_policy/domain_name/whitelist/) 
+	do
+		prase_white_black_list_domain /etc/route_policy/domain_name/whitelist/${file} white
+	done
+	
+	for file in $(ls /etc/route_policy/domain_name/blacklist/) 
+	do
+		prase_white_black_list_domain /etc/route_policy/domain_name/blacklist/${file} black
+	done
+	
+}
+
+set_bypass_route()
+{
+	ip route flush table 52
+	ip route flush table 51
+	route="$(ip route)"
+	IFS_sav=$IFS
+	IFS=$'\n\n'
+	for line in $route
+	do
+	IFS=$IFS_sav
+	if [ ! -n "$(echo "$line"|grep -w -e tun0 -e wg0)" ];then
+		ip route add $line table 52
+		ip route add $line table 51
+	fi
+	IFS=$'\n\n'
+	done
+	IFS=$IFS_sav
+}
+
+setting_resolvfile()
+{
+	local line exist
+	exist="$(grep -rn "/tmp/dnsmasq.d/resolvfile" ./etc/init.d/dnsmasq)"
+	[ -z "$exist" ] && {
+		line="$(grep -rn "\-\-resolv-file=$resolvfile" /etc/init.d/dnsmasq |cut -d ':' -f 1)"
+		sed -i "${line}i\[ -f /tmp/dnsmasq.d/resolvfile ]&& resolvfile=\$(cat /tmp/dnsmasq.d/resolvfile|cut -d '=' -f 2)" /etc/init.d/dnsmasq
+	}
+}
+
+start() {
+	local en=$(uci get glconfig.route_policy.enable)
+	[ "$en" != "1" ] && exit 0
+	get_router_status
+	echo " " >/proc/net/nf_conntrack
+	make_dir
+	make_ipset
+	make_rule
+	make_firewall
+	set_bypass_route
+	dns_conntrack
+	vpn_dns_via=$(cat /tmp/resolv.conf.vpn 2>/dev/null |grep nameserver|grep -v :|head -n 1|cut -d ' ' -f 2)
+	dns_via=$(cat /tmp/resolv.conf.auto 2>/dev/null |grep nameserver|grep -v :|head -n 1|cut -d ' ' -f 2)
+	manul_dns=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d '#' -f 1)
+	fill_mac
+	fill_bypass_via_domain
+	fill_white_black_list_domain
+	reload_firewall
+	load_dns_route
+#	setting_resolvfile
+	get_router_status
+	/etc/init.d/dnsmasq restart
+}
+
+stop(){
+	delete_firewall
+	delete_rule
+	flush_ipset
+	destroy_ipset
+	flush_route
+	rm /tmp/dnsmasq.d/whitelist_domain
+	rm /tmp/dnsmasq.d/blacklist_domain
+	rm /tmp/dnsmasq.d/bypass_domain
+	rm /tmp/dnsmasq.d/via_domain
+	rm /tmp/dnsmasq.d/conntrack
+	rm /tmp/dnsmasq.d/resolvfile
+	rm /etc/resolv.conf && ln -s /tmp/resolv.conf /etc/resolv.conf
+#	cp /rom/etc/init.d/dnsmasq /etc/init.d/dnsmasq
+	/etc/init.d/dnsmasq restart
+	echo " " >/proc/net/nf_conntrack
+}
+
+reload(){
+	local en=$(uci get glconfig.route_policy.enable)
+	[ "$en" != "1" ] && exit 0
+	echo " " >/proc/net/nf_conntrack
+	[ -f /tmp/dnsmasq.d/resolvfile ] && rm /tmp/dnsmasq.d/resolvfile
+	dns_conntrack
+	vpn_dns_via=$(cat /tmp/resolv.conf.vpn 2>/dev/null |grep nameserver|grep -v : |head -n 1|cut -d ' ' -f 2)
+	dns_via=$(cat /tmp/resolv.conf.auto 2>/dev/null |grep nameserver|grep -v: |head -n 1|cut -d ' ' -f 2)
+	manul_dns=$( uci get dhcp.@dnsmasq[0].server 2>/dev/null|cut -d '#' -f 1)
+	fill_mac
+	fill_white_black_list_domain
+    fill_bypass_via_domain
+	reload_firewall
+	load_dns_route
+#	setting_resolvfile
+	get_router_status
+    /etc/init.d/dnsmasq restart
+}

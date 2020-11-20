@@ -1,0 +1,10 @@
+#!/bin/sh
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+if [  "$INTERFACE" = "guest" ];then
+        if [ "$ACTION" == "ifup" ];then
+		/etc/init.d/dnsmasq restart
+        fi
+fi

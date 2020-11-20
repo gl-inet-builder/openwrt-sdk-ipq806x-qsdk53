@@ -1,0 +1,24 @@
+#!/bin/sh
+. /lib/functions/gl_util.sh
+
+device_insert=$(check_tethering_device_insert)
+
+if [ "$ACTION" = add -a -n "$device_insert" ]; then
+	update_tethering_device_list
+fi
+
+if [ "$ACTION" = remove -a "$device_insert" = "" ]; then
+	if [ -f "/tmp/tethering_device_list" ]; then
+		rm /tmp/tethering_device_list 2>/dev/null
+	fi
+fi
+
+ifname=$(uci get network.tethering.ifname 2>/dev/null)
+[ -z "$ifname" ] && exit 0
+if [ "$ACTION" = remove -a "$INTERFACE" = "$ifname" ]; then
+	pid=$(pgrep -f "mwan3track tethering $INTERFACE")
+	[ -n $pid ] && {
+		kill $pid
+		env -i ACTION=ifdown INTERFACE=tethering DEVICE=$INTERFACE /sbin/hotplug-call iface
+	}
+fi

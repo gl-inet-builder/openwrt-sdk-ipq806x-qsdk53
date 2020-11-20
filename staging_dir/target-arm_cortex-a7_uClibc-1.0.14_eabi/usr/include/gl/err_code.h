@@ -41,7 +41,8 @@
 #define ERR_DUPLICATE_NAME_EXISTS	-28 //A duplicate name exists
 
 #define ERR_WAN2LAN_FAILED		-29   //Please remove internet cable
-
+#define ERR_OPKG_UPDATE_FAILED  -30
+#define ERR_OPKG_INSTALL_FAILED -31
 #define ERR_UNKNOWN				 -99    //unknown error
 
 /*WIFI*/
@@ -54,8 +55,18 @@
 #define ERR_WRONG_ENCRYPTION	 -106   //wrong encryption
 //#define ERR_WIFI_CONFIG_MISSING  -107   //no saved ssid
 #define ERR_STA_NOT_CONFIGURE    -108   //sta not configed properly
+#define ERR_GUEST_NETWORK_DISABLED	 -109   
+#define ERR_CHANNEL_INVALID		-110   //channel invalid
+#define ERR_FLASH_NO_SPACE		-111   //no flash space
+#define ERR_NO_WIFI_MODULE      -112   //no wifi module
+#define ERR_NO_5G_WIFI_MODULE      -113   //no 5g wifi module
+#define ERR_AP_2G_BAND_MODULE   -114    //You cannot repeat 5G wifi now because your Wi-Fi module only support 2.4G.
+#define ERR_DONGLE_5G_BAND_MODULE   -115    //You want to repeat a 2.4G Wi-Fi network. Please switch to 2.4G mode for your dongle first.
+#define ERR_DONGLE_2G_BAND_MODULE   -116    //You want to repeat a 5G Wi-Fi network. Please switch to 5G mode for your dongle first.
+#define ERR_AP_MODULE           -117    //The dongle have't exit.Please refresh the page.
 
 /*VPN*/
+#define ERR_MAX_KEYS_LIMIT	     -199   //You have reached the maximum number of WireGuard keys. Go to https://mullvad.net/account/#port-management to revoke one of your keys.
 #define ERR_CLIENT_CONFLICT		 -200	//Must be stopped server before starting client
 #define ERR_SERVER_CONFLICT		 -201	//Must be stopped client before starting server
 #define ERR_STOPPED				 -202	//stopped
@@ -76,6 +87,8 @@
 #define ERR_INVALID_PAIR		 -217	//Invalid pair 
 #define ERR_INVALID_DNS			 -218	//Invalid DNS
 #define ERR_INVALID_ALLOWEDIPS   -219   //Invalid AllowedIPs
+#define ERR_PORT_CONFLICT       -222    //Port is occupied
+#define ERR_INVALID_IPV6       -223  //IPV6 Address must start with fd00
 
 /*#Modem*/
 #define ERR_DEVICE_NO_FOUND		 -250	//device not found, please insert it
@@ -93,6 +106,7 @@
 #define ERR_MSG_SEND_FAILED		 -262	//message send failed
 #define ERR_CHECK_SIM_CARD		 -263	//please check SIM card
 #define ERR_MSG_STATUS_SET_FAIL	 -264	//message status set fail
+#define ERR_DEVICE_BUSY	 		 -265	//device busy
 
 /* Switch */
 #define ERR_WISP_DISCONNECTED	-300    //Wisp disconnected
@@ -129,6 +143,22 @@
 #define ERR_BLE_CRYPTO                      -472    //Error using crypto functions
 #define ERR_BLE_DATA_CORRUPTED              -473    //Data was corrupted.
 #define ERR_BLE_COMMAND_INCOMPLETE          -474    //Data received does not form a complete command
+
+/* nas */
+#define ERR_FILE_EXISTED    -500    //file already exists
+#define ERR_FS_MISSING      -501    //filesystem missing
+#define ERR_FS_UMOUNT       -502    //filesystem can't umount safely
+/*wifi coverage*/
+#define ERR_FUNCTION_CONFLICT -600 //wifi coverage conflict
+
+/*AdGuardHome*/
+#define ERR_DNS_BUSY -700 //wifi coverage conflict
+
+/*MESH*/
+#define ERR_TOPO_DATA -800 //no mesh data
+#define ERR_MESHSUB_OFFLINE -801 //sub device offline
+#define ERR_MESH_UPGRADE -802 //sub upgrde faile
+#define ERR_MESH_SUPPORT -803 //no support on mesh mode
 #endif /* ERR_CODE_H */
 
 

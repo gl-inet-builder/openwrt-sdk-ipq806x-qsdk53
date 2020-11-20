@@ -1,0 +1,15 @@
+./
+./usr
+./usr/lib
+./usr/lib/libgetdns.so.10
+./usr/lib/pkgconfig
+./usr/lib/pkgconfig/getdns_ext_event.pc
+./usr/lib/pkgconfig/getdns.pc
+./usr/lib/libgetdns.a
+./usr/lib/libgetdns.so.10.0.2
+./usr/lib/libgetdns.so
+./usr/include
+./usr/include/getdns
+./usr/include/getdns/getdns_extra.h
+./usr/include/getdns/getdns.h
+./host

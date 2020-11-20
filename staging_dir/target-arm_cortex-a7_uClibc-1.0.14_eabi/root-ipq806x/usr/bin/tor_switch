@@ -1,0 +1,203 @@
+replace_ip()
+{
+	local org_ip="$(cat /etc/tor/torrc |grep TransPort|awk -F '[ :]' '{print $2}')"
+	local new_ip="$(uci get network.lan.ipaddr)"
+	[ "$org_ip" = "$new_ip" ] && return 0
+	sed  -i -e  "s/$org_ip/$new_ip/g" /etc/tor/torrc
+	return 1
+}
+
+replace_country()
+{
+	local country=$(uci get tor.global.country)
+	if [ "$country" = "all" ];then
+		sed  -i  "/StrictNodes/d;/ExitNodes/d" /etc/tor/torrc
+	else
+		sed  -i  "/StrictNodes/d;/ExitNodes/d" /etc/tor/torrc
+		echo "StrictNodes 1" >> /etc/tor/torrc
+		echo "ExitNodes {$country}" >> /etc/tor/torrc
+	fi
+}
+
+tor_on()
+{
+	uci -q delete firewall.tor_dhcp
+	uci set firewall.tor_dhcp="rule"
+	uci set firewall.tor_dhcp.name="Allow-Tor-DHCP"
+	uci set firewall.tor_dhcp.src="lan"
+	uci set firewall.tor_dhcp.proto="udp"
+	uci set firewall.tor_dhcp.dest_port="67"
+	uci set firewall.tor_dhcp.family="ipv4"
+	uci set firewall.tor_dhcp.target="ACCEPT"
+
+	uci -q delete firewall.tor_dns
+	uci set firewall.tor_dns="rule"
+	uci set firewall.tor_dns.name="Allow-Tor-DNS"
+	uci set firewall.tor_dns.src="lan"
+	uci set firewall.tor_dns.proto="udp"
+	uci set firewall.tor_dns.dest_port="9053"
+	uci set firewall.tor_dns.family="ipv4"
+	uci set firewall.tor_dns.target="ACCEPT"
+
+	uci -q delete firewall.tor_tras
+	uci set firewall.tor_tras="rule"
+	uci set firewall.tor_tras.name="Allow-Tor-Transparent"
+	uci set firewall.tor_tras.src="lan"
+	uci set firewall.tor_tras.proto="tcp"
+	uci set firewall.tor_tras.dest_port="9040"
+	uci set firewall.tor_tras.family="ipv4"
+	uci set firewall.tor_tras.target="ACCEPT"
+
+	uci -q delete firewall.tor_socks
+	uci set firewall.tor_socks="rule"
+	uci set firewall.tor_socks.name="Allow-Tor-SOCKS"
+	uci set firewall.tor_socks.src="lan"
+	uci set firewall.tor_socks.proto="tcp"
+	uci set firewall.tor_socks.dest_port="9050"
+	uci set firewall.tor_socks.family="ipv4"
+	uci set firewall.tor_socks.target="ACCEPT"
+
+	local lan_ip="$(uci get network.lan.ipaddr)"
+	[ -n "$lan_ip" ] && {
+		uci -q delete firewall.tor_allow_http
+		uci set firewall.tor_allow_http="redirect"
+		uci set firewall.tor_allow_http.name="Allow access http"
+		uci set firewall.tor_allow_http.src="lan"
+		uci set firewall.tor_allow_http.src_ip="$lan_ip/24"
+		uci set firewall.tor_allow_http.src_dip="$lan_ip"
+		uci set firewall.tor_allow_http.src_dport="80"
+		uci set firewall.tor_allow_http.family="ipv4"
+		uci set firewall.tor_allow_http.proto="tcp"
+		uci set firewall.tor_allow_http.target="ACCEPT"
+
+		uci -q delete firewall.tor_allow_ssh
+		uci set firewall.tor_allow_ssh="redirect"
+		uci set firewall.tor_allow_ssh.name="Allow access  ssh"
+		uci set firewall.tor_allow_ssh.src="lan"
+		uci set firewall.tor_allow_ssh.src_ip="$lan_ip/24"
+		uci set firewall.tor_allow_ssh.src_dip="$lan_ip"
+		uci set firewall.tor_allow_ssh.src_dport="22"
+		uci set firewall.tor_allow_ssh.family="ipv4"
+		uci set firewall.tor_allow_ssh.proto="tcp"
+		uci set firewall.tor_allow_ssh.target="ACCEPT"
+	}
+
+	uci -q delete firewall.tor_allow
+	uci set firewall.tor_allow="redirect"
+	uci set firewall.tor_allow.name="Allow access tor domain"
+	uci set firewall.tor_allow.src="lan"
+	uci set firewall.tor_allow.src_dport="9050"
+	uci set firewall.tor_allow.family="ipv4"
+	uci set firewall.tor_allow.proto="tcp"
+	uci set firewall.tor_allow.target="ACCEPT"
+
+	uci -q delete firewall.dns_int
+	uci set firewall.dns_int="redirect"
+	uci set firewall.dns_int.name="Intercept-DNS"
+	uci set firewall.dns_int.src="lan"
+	uci set firewall.dns_int.src_dport="53"
+	uci set firewall.dns_int.dest_port="9053"
+	uci set firewall.dns_int.family="ipv4"
+	uci set firewall.dns_int.proto="udp"
+	uci set firewall.dns_int.target="DNAT"
+
+	uci -q delete firewall.tcp_int
+	uci set firewall.tcp_int="redirect"
+	uci set firewall.tcp_int.name="Intercept-TCP"
+	uci set firewall.tcp_int.src="lan"
+	uci set firewall.tcp_int.dest_port="9040"
+	uci set firewall.tcp_int.family="ipv4"
+	uci set firewall.tcp_int.proto="tcp"
+	uci set firewall.tcp_int.extra="--syn"
+	uci set firewall.tcp_int.target="DNAT"
+
+	uci set firewall.@forwarding[0].enabled="0"
+	uci set firewall.guestzone_fwd.enabled="0"
+	
+	uci set tor.global.enable="1"
+
+	uci commit
+	/etc/init.d/firewall reload
+	run="$(ps|grep /usr/sbin/tor|grep -v grep)"
+	replace_ip
+	[ -z "$run" -o $? = 1 ] && {
+		replace_country
+		/etc/init.d/tor enable
+		/etc/init.d/tor restart
+	}
+	echo y >/proc/net/nf_conntrack
+	killall -16 e750-mcu
+
+	force_dns=$(uci get glconfig.general.force_dns)
+	if [ "$force_dns" = "yes" ];then
+		iptables -t nat -C PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+		[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+		iptables -t nat -C PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+		[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+	fi
+}
+
+tor_off()
+{
+	uci -q delete firewall.tor_dhcp
+	uci -q delete firewall.tor_dns
+	uci -q delete firewall.tor_tras
+	uci -q delete firewall.tor_socks
+	uci -q delete firewall.tor_allow_http
+	uci -q delete firewall.tor_allow_ssh
+	uci -q delete firewall.tor_allow
+	uci -q delete firewall.dns_int
+	uci -q delete firewall.tcp_int
+
+	uci set firewall.@forwarding[0].enabled="1"
+	uci set firewall.guestzone_fwd.enabled="1"
+	
+	uci set tor.global.enable="0"
+	uci commit
+	/etc/init.d/firewall reload
+	killall -16 e750-mcu
+
+	iptables -t nat -D PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+	iptables -t nat -D PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+}
+
+tor_exit()
+{
+	uci -q delete firewall.tor_dhcp
+	uci -q delete firewall.tor_dns
+	uci -q delete firewall.tor_tras
+	uci -q delete firewall.tor_socks
+	uci -q delete firewall.tor_allow_http
+	uci -q delete firewall.tor_allow_ssh
+	uci -q delete firewall.tor_allow
+	uci -q delete firewall.dns_int
+	uci -q delete firewall.tcp_int
+
+	uci set firewall.@forwarding[0].enabled="1"
+	uci set firewall.guestzone_fwd.enabled="1"
+	
+	uci set tor.global.enable="0"
+	uci commit
+
+	/etc/init.d/firewall reload
+	/etc/init.d/tor stop
+	/etc/init.d/tor disable
+	killall -16 e750-mcu
+
+	iptables -t nat -D PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+	iptables -t nat -D PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+}
+
+
+if [ "$1" = "on" ];then
+	tor_on
+elif [ "$1" = "off" ];then
+	tor_off
+elif [ "$1" = "reconfig" ];then
+	/etc/init.d/tor stop
+	rm /var/lib/tor/control.log
+	tor_on
+else
+	tor_exit
+	rm /var/lib/tor/control.log
+fi

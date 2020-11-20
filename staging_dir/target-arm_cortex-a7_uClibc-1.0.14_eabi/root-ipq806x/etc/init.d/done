@@ -1,0 +1,57 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006 OpenWrt.org
+
+START=95
+
+. /lib/functions/gl_util.sh
+
+boot() {
+	mount_root done
+	rm -f /sysupgrade.tgz
+
+	# process user commands
+	[ -f /etc/rc.local ] && {
+		sh /etc/rc.local
+	}
+
+	# set leds to normal state
+	. /etc/diag.sh
+	set_state done
+	model=$(get_model)
+
+	flag=0
+	#echo "model:$model" >/dev/console
+	if [ "$model" = "mifi" -o "$model" = "x750" ];then
+		name=`uci get network.modem_1_1_2.ifname`
+		proto=`uci get network.modem_1_1_2.proto`
+		#echo "name:$name proto:$proto" >/dev/console
+		if [ "$proto" = "3g" ];then
+			dev="${name}_1_1_2"
+			sysdev=`uci get system.led_3gnet.dev`
+			#echo "dev:$dev proto:$sysdev" >/dev/console
+			if [ "$dev" != "" -a "$dev" != "$sysdev" ];then
+				uci set system.led_3gnet.dev="$dev"
+				flag=1
+				#echo "dev:$dev" >/dev/console
+			fi
+		elif [ "$proto" = "qmi" -o "$proto" = "wwan" ];then
+			#echo "name:$name proto:$proto" >/dev/console
+			sysdev=`uci get system.led_3gnet.dev`
+			if [ "$name" != "" -a "$name" != "$sysdev" ];then
+				uci set system.led_3gnet.dev="$name"
+				flag=1
+				#echo "name:$name " >/dev/console
+			fi
+		else
+			if [ "$name" != "" ];then
+				uci set system.led_3gnet.dev="$name"
+				flag=1
+			fi
+			#echo "aaa name:$name" >/dev/console
+		fi
+		if [ "$flag" = 1 ];then
+			uci commit system
+			/etc/init.d/system restart
+		fi
+	fi
+}

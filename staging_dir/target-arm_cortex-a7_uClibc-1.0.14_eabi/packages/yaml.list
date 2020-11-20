@@ -1,0 +1,12 @@
+./
+./usr
+./usr/lib
+./usr/lib/libyaml-0.so.2.0.4
+./usr/lib/libyaml-0.so.2
+./usr/lib/pkgconfig
+./usr/lib/pkgconfig/yaml-0.1.pc
+./usr/lib/libyaml.a
+./usr/lib/libyaml.so
+./usr/include
+./usr/include/yaml.h
+./host

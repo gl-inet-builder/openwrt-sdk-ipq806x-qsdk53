@@ -9,5 +9,5 @@ Version: 2.9.2
 Description: libXML library version2.
 Requires:
 Libs: -L${libdir} -lxml2
-Libs.private:   -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lz   -lm  
+Libs.private:   -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lz   -lm  
 Cflags: -I${includedir}/libxml2 

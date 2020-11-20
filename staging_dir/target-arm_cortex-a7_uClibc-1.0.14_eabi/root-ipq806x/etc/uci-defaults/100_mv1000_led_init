@@ -1,0 +1,18 @@
+#!/bin/sh
+
+uci add system led
+uci set system.@led[0].name='WAN'
+uci set system.@led[0].sysfs='gl-mv1000:green:wifi'
+uci set system.@led[0].trigger='netdev'
+uci set system.@led[0].dev='wan'
+uci set system.@led[0].mode='link tx rx'
+
+
+uci add system led
+uci set system.@led[1].name='VPN'
+uci set system.@led[1].sysfs='gl-mv1000:green:vpn'
+uci set system.@led[1].trigger='netdev'
+uci set system.@led[1].dev='wg0'
+uci set system.@led[1].mode='link tx rx'
+
+uci commit system

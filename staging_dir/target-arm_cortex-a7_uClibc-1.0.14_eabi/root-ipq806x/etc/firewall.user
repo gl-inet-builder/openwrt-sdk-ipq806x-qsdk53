@@ -1,0 +1,54 @@
+
+force_dns() {
+	# lanip=$(ifconfig br-lan |sed -n 's/.*dr:\(.*\) Bc.*/\1/p')
+	lanip=$(uci get network.lan.ipaddr)
+	tor=$(ps|grep /usr/sbin/tor|grep -v grep)
+	[ "$1" = "add" ] && {
+		ip=$(uci get glconfig.general.ipaddr)
+		[ -z "$ip" ] && ip=$(uci get network.lan.ipaddr)
+		iptables -t nat -D PREROUTING -i br-+ -s 0/0 -p udp --dport 53 -j DNAT --to $ip
+		iptables -t nat -D PREROUTING -i br-+ -s 0/0 -p tcp --dport 53 -j DNAT --to $ip
+		
+		uci set glconfig.general.ipaddr=$lanip
+		uci commit glconfig
+		iptables -t nat -C PREROUTING -i br-+ -s 0/0 -p udp --dport 53 -j DNAT --to $lanip
+		[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-+ -s 0/0 -p udp --dport 53 -j DNAT --to $lanip
+ 		iptables -t nat -C PREROUTING -i br-+ -s 0/0 -p tcp --dport 53 -j DNAT --to $lanip
+ 		[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-+ -s 0/0 -p tcp --dport 53 -j DNAT --to $lanip
+
+		if [ -n "$tor" ];then
+			iptables -t nat -C PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+			[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+			iptables -t nat -C PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+			[ ! "$?" = "0" ] && iptables -t nat -I PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+		fi
+
+
+ 		
+	}
+	[ "$1" = "remove" ] && {
+		lanip=$(uci get glconfig.general.ipaddr)
+		[ -z "$lanip" ] && lanip=$(uci get network.lan.ipaddr)
+		iptables -t nat -C PREROUTING -i br-+ -s 0/0 -p udp --dport 53 -j DNAT --to $lanip
+		[ "$?" = "0" ] && iptables -t nat -D PREROUTING -i br-+ -s 0/0 -p udp --dport 53 -j DNAT --to $lanip
+ 		iptables -t nat -C PREROUTING -i br-+ -s 0/0 -p tcp --dport 53 -j DNAT --to $lanip
+ 		[ "$?" = "0" ] && iptables -t nat -D PREROUTING -i br-+ -s 0/0 -p tcp --dport 53 -j DNAT --to $lanip
+
+		if [ -n "$tor" ];then
+			iptables -t nat -D PREROUTING -i br-lan -p tcp -m tcp --dport 53 -j REDIRECT --to-ports 9053
+			iptables -t nat -D PREROUTING -i br-lan -p udp -m udp --dport 53 -j REDIRECT --to-ports 9053
+		fi
+	}
+}
+
+force=$(uci get glconfig.general.force_dns)
+if [ -n "$force" ]; then
+    force_dns add
+else
+    force_dns remove
+fi
+gl-firewall
+
+# PPTP Passthrough
+iptables -t raw -D OUTPUT -p tcp -m tcp --dport 1723 -j CT --helper pptp
+iptables -t raw -A OUTPUT -p tcp -m tcp --dport 1723 -j CT --helper pptp

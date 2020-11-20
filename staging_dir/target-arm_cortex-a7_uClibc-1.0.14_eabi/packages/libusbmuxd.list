@@ -1,0 +1,12 @@
+./
+./usr
+./usr/lib
+./usr/lib/pkgconfig
+./usr/lib/pkgconfig/libusbmuxd.pc
+./usr/lib/libusbmuxd.so.4
+./usr/lib/libusbmuxd.so.4.0.0
+./usr/lib/libusbmuxd.so
+./usr/include
+./usr/include/usbmuxd.h
+./usr/include/usbmuxd-proto.h
+./host

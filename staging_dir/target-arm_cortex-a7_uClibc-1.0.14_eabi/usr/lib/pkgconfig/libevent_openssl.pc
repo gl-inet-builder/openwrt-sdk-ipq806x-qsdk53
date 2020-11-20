@@ -2,15 +2,15 @@
 
 prefix=/usr
 exec_prefix=/usr
-libdir=${exec_prefix}/lib
-includedir=${prefix}/include
+libdir=/usr/lib
+includedir=/usr/include
 
 Name: libevent_openssl
 Description: libevent_openssl adds openssl-based TLS support to libevent
-Version: 2.0.22-stable
+Version: 2.1.11
 Requires: libevent
 Conflicts:
 Libs: -L${libdir} -levent_openssl
-Libs.private:  -lssl -lcrypto
-Cflags: -I${includedir}
+Libs.private:   -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib/libssl.so -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib/libcrypto.so
+Cflags: -I${includedir} 
 

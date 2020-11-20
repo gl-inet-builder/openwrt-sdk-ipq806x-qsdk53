@@ -1,0 +1,8 @@
+./
+./usr
+./usr/lib
+./usr/lib/libglwificore.so
+./usr/include
+./usr/include/gl
+./usr/include/gl/wifi.h
+./host

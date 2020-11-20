@@ -1,0 +1,72 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+. /lib/functions/gl_util.sh
+
+START=30
+
+mt76x8_channel_list_init() {
+	rm /tmp/2G_channel 2>/dev/null
+	region=$(uci get wireless.mt7628.region)
+	case $region in
+	"0")
+		for i in $(seq 1 11); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	"1")
+		for i in $(seq 1 13); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	"2")
+		for i in $(seq 10 11); do
+    		echo $i >> /tmp/2G_channel
+		done		
+		;;
+	"3")
+		for i in $(seq 10 13); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	"4")
+		echo '14' >> /tmp/2G_channel
+		;;
+	"5")
+		for i in $(seq 1 14); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	"6")
+		for i in $(seq 3 9); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	"7")
+		for i in $(seq 5 13); do
+    		echo $i >> /tmp/2G_channel
+		done
+		;;
+	*)
+		for i in $(seq 1 11); do
+    		echo $i >> /tmp/2G_channel
+		done		
+		;;
+	esac
+}
+
+start() {
+	local model
+
+	model=$(get_model)
+
+	if [ "$model" = "b1300" -o "$model" = "s1300" -o "$model" = "ap1300" ]; then
+		/usr/sbin/b1300_misc_func.sh get_channels wifi0 > /tmp/2G_channel
+		/usr/sbin/b1300_misc_func.sh get_channels wifi1 > /tmp/5G_channel
+	elif [ "$model" = "mt300n-v2" -o "$model" = "n300" -o "$model" = "vixmini" ]; then
+		mt76x8_channel_list_init
+	else
+		iw list|grep ' 2..* MHz'|grep -v disabled|awk -F '[][]' '{print $2}' | grep -v "^$" > /tmp/2G_channel
+		iw list|grep ' 5..* MHz'|grep -v disabled|grep -v radar|awk -F '[][]' '{print $2}' | grep -v "^$" > /tmp/5G_channel
+	fi
+}

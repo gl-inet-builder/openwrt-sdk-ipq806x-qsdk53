@@ -1,0 +1,543 @@
+#!/bin/sh
+# 
+# Created on: Tue 07 Aug 2018 04:54:20 PM CST
+#     Author: lancer
+#      Email: luoyejiang0701@qq.com
+#
+. /lib/functions/gl_util.sh
+
+fix_opkg() {
+	local option_check_sig=$(cat /etc/opkg.conf | grep "option check_signature 1")
+	[ -n "$option_check_sig" ] && sed -i '/check_signature/d' /etc/opkg.conf
+}
+
+fix_opkg
+
+[ $(is_sysupgrade_tgz_exist) = "no" ] && {
+	echo "---Info: No need compatible upgrade... " >> /tmp/gldebuglog
+	exit 0
+}
+
+echo "---Info: Upgrade compatible... " >> /tmp/gldebuglog
+
+model=$(get_model)
+
+fix_ovpn() {
+    local num=$(ls /etc/openvpn/*.ovpn 2>/dev/null | wc -l)
+    [ "$num" = "0" ] && return
+
+    local server_path=$(uci get glconfig.openvpn.ovpn 2>/dev/null)
+    local server_name=""
+    [ -n "$server_path" ] && {
+    	server_name=$(ls $server_path | xargs -n 1 basename)
+    }
+
+    local max_num=$(ls /etc/openvpn/ | wc -l)
+    for i in `seq 1 $max_num`
+    do
+        local ovpnclients=$(ls /etc/config/ovpnclients)
+        [ -z "$ovpnclients" ] && touch /etc/config/ovpnclients
+        
+        local exist=$(ls /etc/openvpn/ovpn$i/ 2>/dev/null)
+        [ -z "$exist" ] && {
+            mkdir -p /etc/openvpn/ovpn$i
+            mv /etc/openvpn/*.ovpn /etc/openvpn/ovpn$i/
+            uci set ovpnclients.ovpn$i=client
+            uci set ovpnclients.ovpn$i.description="ovpn$i"
+            uci set ovpnclients.ovpn$i.path="/etc/openvpn/ovpn$i"
+            uci set ovpnclients.ovpn$i.defaultserver="$server_name"
+            uci set glconfig.openvpn.ovpn="/etc/openvpn/ovpn$i/$server_name"
+            uci commit ovpnclients
+            uci commit glconfig
+            return
+        }
+    done
+}
+
+fix_firewall() {
+	cp /rom/etc/firewall.user /etc/firewall.user
+
+	forwarding_vpn1=$(uci get firewall.forwarding_vpn1 2>/dev/null)
+	[ -n "$forwarding_vpn1" ] && {
+		dest=$(uci get firewall.@forwarding[0].dest)
+		[ "$dest" != "wan" ] && {
+			uci delete firewall.@forwarding[0]
+			uci add firewall forwarding
+			uci set firewall.@forwarding[0]=forwarding
+			uci set firewall.@forwarding[0].src='lan'
+			uci set firewall.@forwarding[0].dest='wan'
+			uci set firewall.@forwarding[0].enabled='0'
+			uci set firewall.forwarding_vpn1=forwarding
+			uci set firewall.forwarding_vpn1.dest='ovpn'
+			uci set firewall.forwarding_vpn1.src='lan'
+			uci commit firewall
+		}
+	}
+}
+
+fix_hwmode() {
+
+	[ "$model" = "mv1000" ] && return
+
+	local hwmode=$(uci get wireless.radio0.hwmode)
+	[ "$hwmode" = "11ng" ] && {
+		uci set wireless.radio0.hwmode='11g'
+		uci commit wireless
+	}
+		
+	hwmode=$(uci get wireless.radio1.hwmode)
+	[ "$hwmode" = "11ng" ] && {
+		uci set wireless.radio1.hwmode='11g'
+		uci commit wireless
+	}
+
+	mt7628_hwmode=$(uci get wireless.mt7628.hwmode)
+	[ "$mt7628_hwmode" = "11ng" ] && {
+		uci set wireless.mt7628.hwmode='11g'
+		uci commit wireless
+	}
+}
+
+fix_dns() {
+	local wan_proto=$(uci get network.wan.proto)
+	local wan_dns=$(uci get network.wan.dns)
+	if [ -n "$wan_dns" ] && [ "$wan_proto" = "dhcp" -o "$wan_proto" = "pppoe" ]; then
+		uci delete network.wan.dns
+		uci delete network.wan.custom_dns
+		uci set network.wan.peerdns='1'
+	fi
+	uci delete network.modem.dns
+	uci delete network.modem.peerdns
+	uci delete network.tethering.dns
+	uci delete network.tethering.peerdns
+	uci delete network.wwan.dns
+	uci delete network.wwan.peerdns
+	uci commit network
+	/etc/init.d/network reload
+
+	local manual_dns=$(uci get glconfig.general.manual_dns)
+	local dns_server=$(uci get dhcp.@dnsmasq[0].server)
+	if [ -n "$dns_server" ] && [ -z "$manual_dns" ] && [ "$dns_server" != "127.0.0.1#53535" ]; then
+		uci set glconfig.general.manual_dns='1'
+		uci delete glconfig.general.custom_dns
+		uci commit glconfig
+	fi
+
+	local cloudflare_dns=$(uci get glconfig.general.cloudflare_dns)
+	[ "$cloudflare_dns" = "1" ] && {
+		uci set stubby.global.enable='1'
+		uci commit stubby
+	}
+}
+
+fix_wireless() {
+	[ "$model" = "mv1000" ] && return
+
+	#don't compatible in new product
+	[ "$model" = "x1200" -o "$model" = "e750" ] && return
+
+	[ "`uci get repacd.repacd.Enable`" = "1" ] && return
+
+	local radio0_htmode=$(uci get wireless.radio0.htmode 2>/dev/null)
+	local radio1_htmode=$(uci get wireless.radio1.htmode 2>/dev/null)
+	
+	[ "$radio0_htmode" = "HT40+" -o "$radio0_htmode" = "HT40-" ] && {
+		uci set wireless.radio0.htmode='HT40'
+		uci commit wireless
+	}
+	[ "$radio1_htmode" = "HT40+" -o "$radio1_htmode" = "HT40-" ] && {
+		uci set wireless.radio1.htmode='HT40'
+		uci commit wireless
+	}
+	
+	local band=""
+	local wds=""
+	case "$model" in
+			"vixmini"|\
+			"n300"|\
+			"mt300n-v2")
+				uci set wireless.mt7628.band='2G'
+				uci set wireless.mt7628.mimops='3'
+                                uci set wireless.mt7628.wmm='1'
+
+				country=$(uci get wireless.mt7628.country)
+				[ "$country" = "CN" ] && {
+					uci set wireless.mt7628.country='US'
+					uci set wireless.mt7628.region='0'
+				}
+
+				hwmode=$(uci get wireless.mt7628.hwmode)
+				htmode=$(uci get wireless.mt7628.htmode)
+				[ "$hwmode" = "11g" ] && [ -z "$htmode" ] && {
+					uci set wireless.mt7628.htmode='HT40'
+				}
+				uci set wireless.mt7628.noscan='0'
+
+				uci commit wireless
+
+				##remove wireless setting in luci##
+				sed -i 's/if has_wifi/if fasle/' /usr/lib/lua/luci/controller/admin/network.lua
+				;;
+	        "mt300a"|\
+	        "mt300n"|\
+	        "ar150"|\
+	        "mifi"|\
+	        "usb150"|\
+	        "x300b"|\
+	        "ar300m")
+	            band=$(uci get wireless.radio0.band 2>/dev/null)
+	            [ -z "$band" ] && uci set wireless.radio0.band='2G'
+	            uci set wireless.radio0.noscan='0'
+			 	uci commit wireless
+	        	;;
+	        "e750"|\
+	        "ar750s"|\
+	        "ar750")
+				wds=$(uci get wireless.default_radio0.wds 2>/dev/null)
+				[ -z "$wds" ] && uci set wireless.default_radio0.wds='1'
+				uci set wireless.radio0.noscan='0'
+				uci set wireless.radio1.noscan='0'
+				uci set wireless.@wifi-iface[0].disassoc_low_ack=0
+				uci set wireless.@wifi-iface[1].disassoc_low_ack=0
+			 	uci commit wireless
+	            ;;
+		"s1300" |\
+                "b1300")
+			uci set wireless.wifi0.noscan='0'
+			uci set wireless.wifi1.noscan='0'
+			uci commit wireless
+                        ;;
+	        *)
+	esac
+}
+
+fix_mac_clone() {
+	local macclone=$(uci get glconfig.general.macclone 2>/dev/null)
+	local wan_mac=$(uci get network.wan.macaddr 2>/dev/null)
+	local wwan_mac=$(uci get wireless.sta.macaddr 2>/dev/null)
+	[ -n "$wan_mac" ] || [ -n "$wwan_mac" ] && [ -z "$macclone" ] && {
+	    uci set glconfig.general.macclone='1'
+	    uci commit glconfig
+
+		iface_macaddr=$(uci get wireless.@wifi-iface[0].macaddr)
+		[ -n "$iface_macaddr" ] && {
+		    uci delete wireless.@wifi-iface[0].macaddr
+		    uci commit wireless
+		}
+	}
+}
+
+fix_txpower() {
+	case "$model" in
+			"ar150"|\
+			"usb150"|\
+			"mifi")
+				txpower_max=$(uci -q get wireless.radio0.txpower_max)
+				[ -z "$txpower_max" ] && uci set wireless.radio0.txpower_max='18'; uci commit wireless
+				;;
+			"ar750s"|\
+	        "ar750")
+        		txpower=$(uci -q get wireless.radio1.txpower)
+        		[ -z "$txpower" ] && uci set wireless.radio1.txpower='20'
+
+				txpower_max=$(uci -q get wireless.radio0.txpower_max)
+				[ -z "$txpower_max" ] && uci set wireless.radio0.txpower_max='20'
+
+				txpower_max=$(uci -q get wireless.radio1.txpower_max)
+				[ -z "$txpower_max" ] && uci set wireless.radio1.txpower_max='20'
+				
+        		uci commit wireless
+                ;;
+            "mt300n-v2")
+        		txpower=$(uci -q get wireless.mt7628.txpower)
+        		[ -z "$txpower" ] && uci set wireless.mt7628.txpower='20'
+
+				txpower_max=$(uci -q get wireless.mt7628.txpower_max)
+				[ -z "$txpower_max" ] && uci set wireless.mt7628.txpower_max='20'				
+				
+        		uci commit wireless
+                ;;
+	        *)
+	esac
+}
+
+fix_remove_unuse() {
+	sed -i '/drop_caches;sysnc/d' /etc/crontabs/root
+	[ -f "/etc/crontabs/root" ] && [ -z "$(cat /etc/crontabs/root)" ] && {
+		rm /etc/crontabs/root
+	}
+}
+
+fix_mwan3() {
+	local globals=$(uci get mwan3.globals)
+	[ -z "$globals" ] && {
+		cp /rom/etc/config/mwan3 /etc/config/
+	}
+}
+
+fix_lighttpd() {
+	local new_version=$(cat /rom/etc/lighttpd/lighttpd.conf | grep "version=")
+	local old_version=$(cat /etc/lighttpd/lighttpd.conf | grep "version=")
+	[ "$new_version" != "$old_version" ] && {
+		cp /rom/etc/lighttpd/lighttpd.conf /etc/lighttpd/lighttpd.conf
+	}
+}
+
+fix_network() {
+	local default_macaddr=$(uci -q get network.lan.default_macaddr)
+	[ -n "$default_macaddr" ] && {
+		uci -q delete network.lan.default_macaddr
+		uci -q delete network.lan.macaddr
+		uci commit network
+	}
+
+	local vlan_ports=""
+	local lan_ifname=""
+	
+	case "$model" in
+	        "ar750")
+	        		vlan_ports=$(uci get network.@switch_vlan[0].ports)
+	        		[ "$vlan_ports" != "1 2 0t" ] && {
+						uci set network.@switch_vlan[0].ports='1 2 0t'
+						uci commit network
+	        		}
+				
+	        		[ "$vlan_ports" = "" ] && {
+						uci add network switch
+						uci set network.@switch[0].name='switch0'
+						uci set network.@switch[0].reset='1'
+						uci set network.@switch[0].enable_vlan='1'
+						uci add network switch_vlan
+						uci set network.@switch_vlan[0].device='switch0'
+						uci set network.@switch_vlan[0].vlan='1'
+						uci set network.@switch_vlan[0].ports='1 2 0t'
+						uci commit network
+	        		}
+
+	        		lan_ifname=$(uci get network.lan.ifname)
+	        		[ "$lan_ifname" = "eth1" ] && {
+						uci set network.lan.ifname='eth1.1'
+						uci commit network
+	        		}
+	                ;;
+	        *)
+	esac
+}
+
+fix_modem()
+{
+	local interface="modem_1_1_2"
+	case "$model" in
+		"s1300"|\
+		"b1300"|\
+		"ar300m"|\
+		"mt300n-v2"|\
+		"mt300n"|\
+		"mt300a"|\
+		"ar150"|\
+		"x300b"|\
+		"ar750s")
+			interface="modem_1_1"
+			[ -n "$(uci -q get mwan3.modem_1_1)" ] && return
+			sed -i "s/'modem'/'modem_1_1'/g" /etc/config/network
+			sed -i "s/'modem'/'modem_1_1'/g" /etc/config/mwan3
+			sed -i "s/'modem_only'/'modem_1_1_only'/g" /etc/config/mwan3
+			;;
+		"mifi"|\
+		"ar750")
+			[ -n "$(uci -q get mwan3.modem_1_1_2)" ] && return
+			sed -i "s/'modem'/'modem_1_1_2'/g" /etc/config/network
+			sed -i "s/'modem'/modem_1_1_2/g" /etc/config/mwan3
+			sed -i "s/'modem_only'/'modem_1_1_2_only'/g" /etc/config/mwan3
+			;;
+		"x1200")
+			interface="modem_1_1_2"
+			[ -n "$(uci -q get mwan3.modem_1_1_2)" ] && return
+			sed -i "s/'modem'/'modem_1_1_2'/g" /etc/config/network
+			sed -i "s/'modem'/'modem_1_1_2'/g" /etc/config/mwan3
+			sed -i "s/'modem_only'/'modem_1_1_2_only'/g" /etc/config/mwan3
+			;;
+		*)
+	esac
+for i in $(uci get firewall.@zone[1].network)
+do
+ [ $i = "modem" ] && {
+	 sed -i "s/modem/$interface/g" /etc/config/firewall 
+	 break
+	}
+done
+	
+}
+
+fix_sysupgrade_script()
+{
+	case "$model" in
+		"x750")
+			cp /rom/sbin/sysupgrade /sbin/sysupgrade
+			;;
+		*)
+	esac
+}
+fix_profile_script()
+{
+	case "$model" in
+		"s1300"|\
+		"b1300")
+			cp /rom/etc/profile /etc/profile
+		;;
+	esac
+}
+fix_rc_local_script()
+{
+	exist=`cat /etc/rc.local | grep cleartraffic`
+	if [ "$exist" == "" ];then
+		sed -i '/exit 0/d' /etc/rc.local
+		echo "uci set tertf.general.cleartraffic='1'" >>/etc/rc.local
+		echo "uci commit tertf" >>/etc/rc.local
+		uci set tertf.general.cleartraffic='1'
+		uci commit tertf
+	fi
+}
+
+fix_extra_b1300_clean_config()
+{
+	local configs="acd chinadns dns-forwarder mjpg-streamer qos shadowsocks upnpd"
+	for file in ${configs}; do
+		rm -f /etc/config/${file}
+	done
+	rm -f /etc/ppp/options.xl2tpd
+	rm -fr /etc/xl2tpd
+	rm -fr /etc/chinadns_chnroute.txt
+}
+
+fix_extra_b1300()
+{
+	uci set dhcp.@dnsmasq[0].nonwildcard=1
+	uci commit dhcp
+	uci delete firewall.miniupnpd
+	uci delete firewall.shadowsocks
+	uci commit firewall
+	uci delete ucitrack.@chinadns[0]
+	uci delete ucitrack.@dns-forwarder[0]
+	uci delete ucitrack.@shadowsocks[0]
+	uci commit ucitrack
+	if [ -z "$(uci -q get network.wan)" ]; then
+		uci set repacd.repacd.Role_real=NonCAP
+	else
+		uci set repacd.repacd.Role_real=CAP
+	fi
+	uci commit repacd
+	if [ "$(uci -q get vpn_service.global.access)" = "" ]; then
+		uci set vpn_service.global.access=DROP
+		uci commit vpn_service
+	fi
+	fix_extra_b1300_clean_config
+}
+
+fix_glproduct()
+{
+	exist=$(cat /etc/sysupgrade.conf | grep "glproduct")
+	[ -z "$exist" ] && echo '/etc/glproduct' >>/etc/sysupgrade.conf
+	if [ "`uci get repacd.repacd.Enable`" = 1 ]; then
+		uci set glconfig.bridge='service'
+		uci set glconfig.bridge.mode='mesh'
+		# echo "mesh" >/etc/glproduct
+	fi
+}
+
+fix_portal()
+{
+	gateway=$(uci get nodogsplash.@nodogsplash[0].network)
+	[ "$gateway" = "lan" ] && {
+		uci set nodogsplash.@nodogsplash[0].network='guest'
+		uci set nodogsplash.@nodogsplash[0].enabled='0'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 23'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 80'
+		uci delete nodogsplash.@nodogsplash[0].preauthenticated_users
+		uci add_list nodogsplash.@nodogsplash[0].preauthenticated_users='allow tcp port 53'
+		uci add_list nodogsplash.@nodogsplash[0].preauthenticated_users='allow udp port 53'
+		uci commit nodogsplash
+	}
+	
+	[ "$gateway" = "guest" ] && {
+		uci delete nodogsplash.@nodogsplash[0].preauthenticated_users
+		uci add_list nodogsplash.@nodogsplash[0].preauthenticated_users='allow tcp port 53'
+		uci add_list nodogsplash.@nodogsplash[0].preauthenticated_users='allow udp port 53'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 22'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 23'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 443'
+		uci del_list nodogsplash.@nodogsplash[0].users_to_router='allow tcp port 80'
+		uci commit nodogsplash
+	}
+	
+}
+
+fix_forward(){
+	local forwarding=`uci show glfw|grep =forwarding|awk -F = '{print $1}'`
+	local redirect=`uci show firewall|grep =redirect`
+	local num=0
+	for i in $redirect
+	do
+		let num++
+	done
+	for sec in $forwarding
+	do
+		name=`uci get $sec.name`
+		src_dport=`uci get $sec.outer_port`
+		dest_port=`uci get $sec.inner_port`
+		dest_ip=`uci get $sec.inner_ip`
+		proto=`uci get $sec.proto`
+		enabled=0
+		[ `uci get $sec.status` = "Enabled" ] && enabled=1
+	
+		uci add firewall redirect >/dev/null 2>&1
+		uci set firewall.@redirect[$num].name=$name
+		uci set firewall.@redirect[$num].target="DNAT"
+		uci set firewall.@redirect[$num].src="wan"
+		uci set firewall.@redirect[$num].dest="lan"
+		if [ "$proto" = "TCP" ];then
+			uci set firewall.@redirect[$num].proto="tcp"
+		elif [ "$proto" = "UDP" ];then
+			uci set firewall.@redirect[$num].proto="udp"
+		else
+			uci set firewall.@redirect[$num].proto="tcp udp"
+		fi
+		uci set firewall.@redirect[$num].src_dport=$src_dport
+		uci set firewall.@redirect[$num].dest_ip=$dest_ip
+		uci set firewall.@redirect[$num].dest_port=$dest_port
+		uci set firewall.@redirect[$num].enabled=$enabled
+		uci set firewall.@redirect[$num].gl="1"
+		uci commit firewall
+		let num++
+	done
+	#remove all
+	for i in $forwarding
+	do
+		uci delete glfw.@forwarding[0]
+	done
+	uci commit glfw
+}
+
+fix_ovpn
+fix_firewall
+fix_hwmode
+fix_dns
+fix_wireless
+fix_mac_clone
+fix_txpower
+fix_remove_unuse
+fix_mwan3
+fix_lighttpd
+fix_network
+fix_modem
+fix_sysupgrade_script
+fix_profile_script
+fix_rc_local_script
+[ "$model" = "b1300" ] && fix_extra_b1300
+fix_glproduct
+fix_portal
+fix_forward
+
+sync

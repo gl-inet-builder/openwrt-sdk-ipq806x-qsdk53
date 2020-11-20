@@ -1,0 +1,182 @@
+#!/bin/sh /etc/rc.common
+#
+# Copyright (C) 2017
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+
+. /lib/functions/gl_util.sh
+
+START=90
+
+model=$(get_model)
+guest_exist=$(check_guest_network_exist)
+tap=$(cat /etc/openvpn/ovpn/server.ovpn|grep 'dev tap')
+
+NAME=vpn-service
+
+set_network() {
+	local subnet=$(uci get vpn_service.vpn.subnet)
+	local mask=$(uci get vpn_service.vpn.mask)
+	local start=$(uci get vpn_service.vpn.start)
+	local end=$(uci get vpn_service.vpn.end)
+	local gw="${subnet%.*}.1"
+	uci set network.vpn="interface"
+	uci set network.vpn.ifname="tap0"
+	uci set network.vpn.proto="static"
+	uci set network.vpn.netmask=$mask
+	uci set network.vpn.ipaddr=$gw
+
+	uci set dhcp.vpn='dhcp'
+	uci set dhcp.vpn.interface="vpn"
+	uci set dhcp.vpn.start=$start
+	uci set dhcp.vpn.limit=$end
+	uci set dhcp.vpn.leasetime='12h'
+	uci set dhcp.vpn.force='1'
+	uci set dhcp.vpn.dhcpv6='server'
+	uci set dhcp.vpn.ra='server'
+
+	uci commit network
+	uci commit dhcp
+	/etc/init.d/network reload && /etc/init.d/dnsmasq reload
+
+	return 0
+}
+
+set_firewall() {
+	local proto=$(uci get vpn_service.vpn.proto)
+	local port=$(uci get vpn_service.vpn.port)
+	local access=$(uci get vpn_service.global.access)
+	uci set firewall.vpn_server_rule="rule"
+	uci set firewall.vpn_server_rule.name="Allow-OpenVPN-Inbound"
+	uci set firewall.vpn_server_rule.target="ACCEPT"
+	uci set firewall.vpn_server_rule.src="wan"
+	uci set firewall.vpn_server_rule.proto=$proto
+	uci set firewall.vpn_server_rule.dest_port=$port
+
+	uci set firewall.vpn_server_zone="zone"
+	uci set firewall.vpn_server_zone.name="vpn-server"
+	uci set firewall.vpn_server_zone.input="$access"
+	uci set firewall.vpn_server_zone.forward="DROP"
+	uci set firewall.vpn_server_zone.output="ACCEPT"
+	uci set firewall.vpn_server_zone.masq="1"
+	uci set firewall.vpn_server_zone.mtu_fix='1'
+	uci set firewall.vpn_server_zone.masq6='1'
+	if [ -n "$tap" ];then
+		uci add_list firewall.vpn_server_zone.network="vpn"
+		uci set firewall.lan_vpn_server="forwarding"
+		uci set firewall.lan_vpn_server.src="lan"
+		uci set firewall.lan_vpn_server.dest="vpn-server"
+	else
+		uci set firewall.vpn_server_zone.device="tun-SERVER"
+	fi
+
+	uci set firewall.vpn_server_wan="forwarding"
+	uci set firewall.vpn_server_wan.src="vpn-server"
+	uci set firewall.vpn_server_wan.dest="wan"
+	
+	uci set firewall.vpn_server_lan="forwarding"
+	uci set firewall.vpn_server_lan.src="vpn-server"
+	uci set firewall.vpn_server_lan.dest="lan"
+	[ "$access" != "ACCEPT" ] && {
+		uci set firewall.vpn_server_lan.enabled="0"
+	}	
+
+	if [ -n "$guest_exist" ];then
+		# vpn to guestzone add by wellnw
+		uci set firewall.vpn_server_guest="forwarding"
+		uci set firewall.vpn_server_guest.src="vpn-server"
+		uci set firewall.vpn_server_guest.dest="guestzone"
+	fi
+
+	uci commit firewall
+	/etc/init.d/firewall reload >> /dev/null
+
+	return 0
+}
+
+flush_rules() {
+	iptables-save -c | grep -v "vpn" | iptables-restore -c
+
+	# clear vpn firewall
+	uci delete firewall.vpn_server_rule
+	uci delete firewall.vpn_server_zone
+	uci delete firewall.vpn_server_wan
+	uci delete firewall.vpn_server_lan
+	uci delete firewall.lan_vpn_server
+
+	if [ -n "$guest_exist" ];then
+		uci delete firewall.vpn_server_guest #add by wellnw
+	fi
+	uci commit firewall
+
+	# clear vpn interface
+	uci delete network.vpn
+	uci commit network
+	uci delete dhcp.vpn
+	uci commit dhcp
+
+	return 0
+}
+
+start_server() {
+	local cfg="$1"
+	local interface=`uci -q get system.@led[1].dev`
+
+	command -v openvpn >/dev/null 2>&1 || return 0
+
+	[ -z "$cfg" ] && return 0
+
+	flush_rules && set_firewall
+
+	if [ -n "$tap" ];then
+		set_network
+	fi
+
+	[ "$model" = "mv1000" ] && [ "$interface" != "tun-SERVER" ] &&{
+		uci set system.@led[1].dev='tun-SERVER'
+		uci commit system
+	
+		sleep 1
+
+		/etc/init.d/system restart >> /dev/null
+		/etc/init.d/led restart >> /dev/null
+	}
+
+	/usr/sbin/openvpn --config "$cfg" --daemon --writepid /var/run/ovpn_server.pid
+}
+
+openvpn_server() {
+	local enable=`uci get vpn_service.global.enable`	
+	local vpn_port=$(uci get vpn_service.vpn.port)
+
+	if [ "$vpn_port" = "80" -o "$vpn_port" = "83" -o "$vpn_port" = "443" ];then
+		logger -st $NAME "port is occupied, please use another port."
+		return 0
+	fi
+
+	if [ "$enable" != "1" ];then
+		return 0
+	fi
+
+	local cfg=`uci get vpn_service.global.ovpn`
+	if [ ! -e "$cfg" ];then
+		logger -st $NAME -p3 "Openvpn server config no found."	
+		return 0
+	fi
+
+	start_server "$cfg"
+}
+
+start() {
+	openvpn_server
+
+	[ "$model" = "b2200" ] && /etc/init.d/dnsmasq restart
+}
+
+stop() {
+	kill -9 $(cat /var/run/ovpn_server.pid) >/dev/null 2>&1
+	flush_rules
+}
+

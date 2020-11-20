@@ -1,0 +1,13 @@
+#!/bin/sh
+
+iptables -C GL_S2S_FORWARD -j zone_lan_dest_ACCEPT > /dev/null 2>&1
+T1="$?"
+
+iptables -C GL_S2S_FORWARD -j zone_wan_dest_ACCEPT1 > /dev/null 2>&1
+T2="$?"
+
+if [ "$T1" != "0" -a "$T2" != "0" ]; then
+        /etc/init.d/gl_s2s restart
+fi
+
+exit 0

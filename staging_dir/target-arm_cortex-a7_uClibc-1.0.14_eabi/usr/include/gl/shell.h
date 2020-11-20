@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
+bool is_running(const char *name);
+bool file_exist(const char *name);
+void killbyname(const char *name);
 /*
  * Get the output of shell command
  * Return 0 sucess, -1 failed, can be multiline

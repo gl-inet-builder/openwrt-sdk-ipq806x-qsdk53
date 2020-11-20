@@ -1,0 +1,102 @@
+#!/bin/sh
+
+# export usb_power gpio
+
+. /lib/functions/gl_util.sh
+
+model=$(get_model)
+
+[ "$model" = "s1300" ] && GPIO=35
+[ "$model" = "b1300" ] && GPIO=0
+
+# usb3 power
+if [ "$model" = "b1300" -o "$model" = "s1300" ]; then
+	echo "$GPIO" > /sys/class/gpio/export
+	echo "high" > /sys/class/gpio/gpio${GPIO}/direction
+fi
+
+if [ "$model" = "ap1300" ]; then
+	echo sd2068 0x32 > /sys/bus/i2c/devices/i2c-0/new_device
+	/usr/sbin/ap1300_watchdog.sh &
+	#stop rtty on boot
+	/etc/init.d/rtty stop
+	/etc/init.d/rtty disable
+	#lte reset disable
+	echo "1" > /sys/class/gpio/export
+	echo "low" > /sys/class/gpio/gpio1/direction
+	#modem
+	modem_bus=$(ls /sys/bus/usb/drivers/option/ | cut -f1 -d: | head -1)
+	modem_bus_old=$(uci get glconfig.modem.bus)
+	if [ "$modem_bus" != "$modem_bus_old" -a "$modem_bus" != "bind" ]; then
+		uci delete network.modem_2_1
+		uci delete network.modem_1_1
+		uci commit network
+		uci del_list glconfig.modem.bus=$modem_bus_old
+		uci add_list glconfig.modem.bus=$modem_bus
+		uci commit glconfig
+	fi
+	#modem led
+	if [ -z "$(grep lte_led /etc/config/system)" ]; then
+		uci set system.lte_led=led
+		uci set system.lte_led.name='lte'
+		uci set system.lte_led.sysfs='lte_led'
+		uci set system.lte_led.trigger='none'
+		uci set system.lte_led.default='0'
+
+		uci set system.pwr_led=led
+		uci set system.pwr_led.name='power'
+		uci set system.pwr_led.sysfs='power_led'
+		uci set system.pwr_led.trigger='none'
+		uci set system.pwr_led.default='1'
+		uci commit system
+	fi
+	if [ "$(uci get system.pwr_led.default)" = 1 ]; then
+		. /etc/diag.sh
+		if [ -n "$(grep online /var/run/mwan3/iface_state/ -nr)" ]; then
+			set_led_state has_internet
+		else
+			set_led_state no_internet 
+		fi
+	fi
+	if [ -n "$(uci -q get mwan3.lan)" ]; then
+		uci del_list mwan3.default_poli.use_member="lan_only"
+		#uci set mwan3.lan=interface
+		#uci set mwan3.lan.enabled='0'
+		#uci set mwan3.lan.family='ipv4'
+		#uci set mwan3.lan.reliability='2'
+		#uci set mwan3.lan.count='1'
+		#uci set mwan3.lan.timeout='2'
+		#uci set mwan3.lan.interval='5'
+		#uci set mwan3.lan.down='3'
+		#uci set mwan3.lan.up='5'
+		#uci add_list mwan3.lan.track_ip="8.8.4.4"
+		#uci add_list mwan3.lan.track_ip="8.8.8.8"
+		#uci add_list mwan3.lan.track_ip="208.67.222.222"
+		#uci add_list mwan3.lan.track_ip="208.67.220.220"
+		uci del mwan3.lan
+		#uci set mwan3.lan_only=member
+		#uci set mwan3.lan_only.interface='lan'
+		#uci set mwan3.lan_only.metric='1'
+		#uci set mwan3.lan_only.weight='3'
+		uci del mwan3.lan_only
+		uci commit mwan3
+	fi
+fi
+
+# toggle lan power
+ssdk_sh debug phy set 2 0 0x840; ssdk_sh debug phy set 3 0 0x840
+sleep 0.5
+ssdk_sh debug phy set 2 0 0x1240; ssdk_sh debug phy set 3 0 0x1240
+
+# fix dhcp service fail to start
+dhcpd_enable=$(uci -q get dhcp.lan.ignore)
+[ "$dhcpd_enable" = 1 ] && exit 0
+while true; do
+	if [ -n "$(grep dhcp-range /var/etc/dnsmasq.conf* 2>/dev/null)" ];then
+		break
+	else
+		/etc/init.d/dnsmasq restart
+	fi
+	sleep 5
+done
+

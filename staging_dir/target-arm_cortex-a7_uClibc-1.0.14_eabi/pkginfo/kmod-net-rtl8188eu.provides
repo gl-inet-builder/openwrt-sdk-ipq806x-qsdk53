@@ -9,7 +9,3 @@ libm.so.1
 libuClibc-1.0.14.so
 libutil-1.0.14.so
 libutil.so.1
-nls_base.ko
-r8188eu.ko
-usb-common.ko
-usbcore.ko

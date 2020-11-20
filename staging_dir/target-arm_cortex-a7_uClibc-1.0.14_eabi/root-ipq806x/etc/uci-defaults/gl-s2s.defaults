@@ -1,0 +1,10 @@
+#!/bin/sh
+uci -q batch <<-EOF >/dev/null
+	delete firewall.gls2s
+	set firewall.gls2s=include
+	set firewall.gls2s.type=script
+	set firewall.gls2s.path=/var/etc/gls2s.include
+	set firewall.gls2s.reload=1
+	commit firewall
+EOF
+exit 0

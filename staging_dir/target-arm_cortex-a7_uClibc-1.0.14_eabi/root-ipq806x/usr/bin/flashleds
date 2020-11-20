@@ -1,0 +1,74 @@
+#!/bin/sh
+. /lib/functions/gl_util.sh
+
+model=$(get_model)
+
+leds=
+
+case "$model" in
+	"mt300a"|\
+	"mt300n"|\
+	"ar150"|\
+	"mifi"|\
+	"ar300"|\
+	"ar300m")
+		leds="gl-${model}:green:lan gl-${model}:green:wan gl-${model}:green:wlan"
+		;;
+	"mt300n-v2")
+		leds="gl-${model}:green:power gl-${model}:blue:wan gl-${model}:red:wlan"
+		;;
+	"x300b")
+		leds="gl-${model}:green:4g gl-${model}:green:wan gl-${model}:green:wlan2g"
+		;;
+	"ar750"|\
+	"ar750s")
+		leds="gl-${model}:white:power gl-${model}:white:wlan2g gl-${model}:white:wlan5g"
+		;;
+	"x1200")
+		leds="gl-${model}:red:system gl-${model}:green:wlan2g gl-${model}:green:wlan5g"
+		;;
+	"x750")
+		leds="gl-${model}:white:power gl-${model}:white:wan gl-${model}:white:wlan5g gl-${model}:white:wlan2g gl-${model}:white:4g"
+		;;
+	"usb150")
+		leds="gl-${model}:green:power gl-${model}:green:wlan"
+		;;
+	"s1300"|\
+	"b1300")
+		leds="power_led mesh_led wifi_led"
+		;;
+	"ap1300")
+		leds="power_led lte_led"
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+for led in $leds
+do
+	echo 0 > /sys/class/leds/$led/brightness
+done
+
+nled=$(echo "$leds" | wc -w)
+
+i=1
+while [ "$i" -le 100 ]
+do
+	if [ $nled -eq 1 ];
+	then
+		echo 1 > /sys/class/leds/$led/brightness
+		sleep 0.5
+		echo 0 > /sys/class/leds/$led/brightness
+		sleep 0.5
+	else
+		for led in $leds
+		do
+			echo 1 > /sys/class/leds/$led/brightness
+			sleep 0.5
+			echo 0 > /sys/class/leds/$led/brightness
+		done
+	fi
+
+    let i=i+1
+done

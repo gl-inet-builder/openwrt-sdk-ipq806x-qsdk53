@@ -1,0 +1,91 @@
+#!/bin/sh
+
+system=""
+restart="1"
+error=""
+oflag="0"
+uflag='0'
+
+switch_help()
+{
+	cat <<EOF
+Usage:  $0 <system options> [<extra options>]
+        $0 <ubuntu> or <openwrt> [-n]
+
+system options	
+		ubuntu			switch ubuntu
+		openwrt			switch openwrt
+
+extra options
+		-n|--noboot		no reboot after switched system	
+		-h|--help		display this help
+
+EOF
+}
+
+if [ "$#" = "0" ];then
+	switch_help;
+	exit 1;
+fi
+
+# parse options
+
+while [ -n "$1" ]; do
+	case "$1" in
+		ubuntu)
+			system="ubuntu";uflag="1";;
+		openwrt)
+			system="openwrt";oflag="1";;
+		-n|--noboot)
+			restart="0";;	
+		-h|--help)
+			switch_help;exit 1;;	
+		*)
+			error="${error} ${1}";;
+	esac
+	shift
+done
+
+if [ "$oflag" = "1" -a "$uflag" = "1" ];then
+	echo ""
+	echo "Please confirm the system you want to switch. Please refer to switch_system --help"
+	echo ""
+	exit 1
+fi
+
+if [ "$error" != "" ];then
+	echo ""
+	echo  "$error is error,please check parameter:switch_system --help"
+	echo ""
+	exit 1
+fi
+
+[ "$system" = "ubuntu" ] &&{
+	c_system=""
+	c_system=`cat /proc/version | grep OpenWrt`
+	if [ "$c_system" = "" ];then
+		echo ""
+		echo "This is ubuntu-system already,You don't have to switch."
+		echo ""
+		exit 1
+	fi
+	fw_setenv image_part "3"
+	fw_setenv image_dir "/boot/"
+	fw_setenv fdt_name "armada-gl-mv1000-ubuntu.dtb"
+	fw_setenv image_name "Image"
+	fw_setenv args_mmc "setenv bootargs "${console} root=/dev/mmcblk0p3 rw rootwait""
+}
+
+[ "$system" = "openwrt" ] &&{
+	c_system=""
+	c_system=`cat /proc/version | grep OpenWrt`
+	if [ "$c_system" != "" ];then
+		echo ""
+		echo "This is openwrt-system already,You don't have to switch."
+		echo ""
+		exit 1
+	fi
+	dd if=/dev/zero of=/dev/mtd1
+}
+
+[ "$restart" = "1" ] && reboot

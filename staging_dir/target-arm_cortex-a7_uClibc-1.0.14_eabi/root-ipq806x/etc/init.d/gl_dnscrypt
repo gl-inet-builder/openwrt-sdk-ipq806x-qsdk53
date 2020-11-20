@@ -1,0 +1,8 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+start(){
+    dnscrypt=`uci get glconfig.general.dnscrypt_proxy 2>/dev/null`
+    [ "$dnscrypt" == "1" ] && /etc/init.d/dnscrypt-proxy start
+}

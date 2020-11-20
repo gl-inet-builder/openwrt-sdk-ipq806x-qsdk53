@@ -1,0 +1,14 @@
+#!/bin/sh
+
+GPIO=12
+if [ ! -e /sys/class/gpio/gpio${GPIO} ];then
+	echo $GPIO >/sys/class/gpio/export
+fi
+
+if [ "`cat /sys/class/gpio/gpio${GPIO}/direction`" != "out" ];then
+	echo out >/sys/class/gpio/gpio${GPIO}/direction
+fi
+
+echo 1 >/sys/class/gpio/gpio${GPIO}/value
+
+exit 0

@@ -1,0 +1,57 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+model=$(awk -F': ' '/machine/ {print tolower($NF)}' /proc/cpuinfo |cut -d- -f2-)
+
+[ -n "$(grep "DK04" /proc/device-tree/model)" ] && model="s1300"
+[ -n "$(grep "DK01.1-C1" /proc/device-tree/model)" ] && model="b1300"
+[ -n "$(grep "DK01.1-C2" /proc/device-tree/model)" ] && model="ap1300"
+if [ "$model" = "s1300" -o "$model" = "b1300" ]; then
+	BLE_START="/usr/sbin/gl-ble-daemon /dev/ttyHS0 115200 0"
+elif [ "$model" = "ap1300" ];then
+	BLE_START="/usr/sbin/gl-ble-daemon /dev/ttyUSB0 115200 0"
+elif [ "$model" = "e750" ];then
+	DEVICE=/dev/$(find  /sys/bus/usb/devices/1-1.4/ -name "ttyUSB*"|head -n 1|cut -d '/' -f 8)
+	BLE_START="/usr/sbin/gl-ble-daemon "$DEVICE" 115200 0"
+	[ -f /sys/class/gpio/gpio17/value ] || {
+		echo 17 >/sys/class/gpio/export
+		echo out  >/sys/class/gpio/gpio17/direction
+	}
+else
+	BLE_START="/usr/sbin/gl-ble-daemon /dev/ttyS0 115200 0"
+fi
+
+start_service() {
+			if [ "$model" = "e750" ];then
+				echo 0 >/sys/class/gpio/gpio17/value
+				sleep 1
+				echo 1 >/sys/class/gpio/gpio17/value
+				sleep 1
+			elif [ "$model" = "x300b" ];then
+				echo 0 >/sys/class/gpio/gpio16/value
+				sleep 1
+				echo 1 >/sys/class/gpio/gpio16/value
+				sleep 1
+			elif [ "$model" != "s1300" -a "$model" != "b1300" -a "$model" != "ap1300" ]; then
+				echo 0 >/sys/class/gpio/gpio1/value
+				sleep 1
+				echo 1 >/sys/class/gpio/gpio1/value
+				sleep 1
+			elif [ "$model" = "s1300" ]; then
+				echo 48 >/sys/class/gpio/export
+				echo out >/sys/class/gpio/gpio48/direction
+				echo 0 >/sys/class/gpio/gpio48/value
+				sleep 1
+				echo 1 >/sys/class/gpio/gpio48/value
+				sleep 1
+			else
+				:
+			fi
+        	procd_open_instance
+        	procd_set_param command $BLE_START
+			procd_set_param respawn
+        	procd_close_instance
+}
+

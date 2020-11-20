@@ -1,0 +1,58 @@
+#!/bin/sh  /etc/rc.common
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+START=59
+USE_PROCD=1
+
+install_kmod()
+{
+	kernel=`uname -r`                 
+	cp /rom/etc/modules.d/99-qos /etc/modules.d -rf 1>/dev/null 2>&1
+	cp /rom/usr/sbin/glqos.sh /usr/sbin/glqos.sh -rf 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/cls_flow.ko 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/sch_cbq.ko  1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/sch_prio.ko 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/xt_u32.ko 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/cls_u32.ko 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/sch_ingress.ko 1>/dev/null 2>&1
+	insmod /lib/modules/${kernel}/sch_sfq.ko 1>/dev/null 2>&1
+}
+
+
+remove_kmod()
+{
+	rm /etc/modules.d/99-qos -rf 1>/dev/null 2>&1
+	rm /usr/sbin/glqos.sh -rf 1>/dev/null 2>&1
+	rmmod sch_sfq 1>/dev/null 2>&1
+	rmmod sch_ingress 1>/dev/null 2>&1
+	rmmod cls_u32 1>/dev/null 2>&1
+	rmmod xt_u32 1>/dev/null 2>&1
+	rmmod sch_prio 1>/dev/null 2>&1
+	rmmod sch_cbq 1>/dev/null 2>&1
+	rmmod cls_flow 1>/dev/null 2>&1
+}
+
+start_service()
+{	
+	local enable
+	enable=`uci get glconfig.traffic_control.enable`
+	if [ "$enable" = 1 ];then
+		install_kmod
+		cp /rom/etc/hotplug.d/iface/15-teql /etc/hotplug.d/iface/15-teql -rf 
+		cp /rom/etc/hotplug.d/iface/25-glqos /etc/hotplug.d/iface/25-glqos -rf
+	else
+		remove_kmod
+		rm /etc/hotplug.d/iface/15-teql -rf 1>/dev/null 2>&1
+		rm /etc/hotplug.d/iface/25-glqos -rf 1>/dev/null 2>&1
+	fi
+	
+}
+stop_service()
+{
+	remove_kmod
+	rm /etc/hotplug.d/iface/15-teql -rf 1>/dev/null 2>&1
+	rm /etc/hotplug.d/iface/25-glqos -rf 1>/dev/null 2>&1
+}
+

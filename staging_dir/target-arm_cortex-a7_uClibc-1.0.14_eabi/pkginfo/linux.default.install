@@ -1,0 +1,3 @@
+kernel
+kmod-usb-core
+kmod-usb-gadget

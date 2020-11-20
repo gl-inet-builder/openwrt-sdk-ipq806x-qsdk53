@@ -1,0 +1,10 @@
+#!/bin/sh
+
+[ "${ACTION}" = "add" ] && {
+
+	[ ! -f "/etc/config/wireless" ] && exit 0
+
+	[ -f "/tmp/gl_mv1000_wifi.pid" ] && exit 0
+
+	/etc/init.d/gl_mv1000_wifi start "add" 
+}

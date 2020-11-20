@@ -63,6 +63,8 @@ extern char * format_quality_max(int qmax);
 
 extern char * format_enc_suites(int suites);
 
+extern char * format_assocrate(struct iwinfo_rate_entry *r);
+
 #ifdef __cplusplus
 }
 #endif

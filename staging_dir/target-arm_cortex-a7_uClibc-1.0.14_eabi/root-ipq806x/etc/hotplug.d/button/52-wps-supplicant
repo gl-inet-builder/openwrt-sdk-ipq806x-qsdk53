@@ -1,0 +1,44 @@
+#
+# Copyright (c) 2017 Qualcomm Technologies, Inc.
+#
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+
+#
+# Copyright (c) 2014, The Linux Foundation. All rights reserved.
+#
+
+bridge_mode=$(uci -q get glconfig.bridge.mode)
+[ "$bridge_mode" = "ap" -o  "$bridge_mode" = "relay" -o "$bridge_mode" = "wds" ] && exit 0
+
+pid=
+counter=21
+role="`uci get repacd.repacd.Role`"
+synced="`uci get gl_son.general.synced`"
+[ "$role" = "CAP" ] && exit 0
+[ "$synced" = "1" ] && exit 0
+if [ "$ACTION" = "released" -a "$BUTTON" = "wps" -a "$SEEN" -gt 3 -a "$SEEN" -lt 9 ]; then
+    [ -r /var/run/son_active ] && exit 0
+	if [ -r /var/run/wifi-wps-enhc-extn.conf ] &&
+		[ ! -r /var/run/son.conf ]; then
+		exit 0
+	fi
+	lock -n /var/run/mesh_button.lock
+	[ $? = 1 ] && exit 0
+	while true; do
+		[ -d /var/run/wpa_supplicant-ath12 ] && break
+		counter=$(($counter-1))
+		[ counter = 0 ] && break
+		sleep 2
+	done
+	lock -u /var/run/mesh_button.lock
+	for dir in /var/run/wpa_supplicant-*; do
+		[ -d "$dir" ] || continue
+		pid=/var/run/wps-hotplug-${dir#"/var/run/wpa_supplicant-"}.pid
+		wpa_cli -p "$dir" wps_pbc
+		[ -f $pid ] || {
+			wpa_cli -p"$dir" -a/lib/wifi/wps-supplicant-update-uci -P$pid -B
+		}
+	done
+fi

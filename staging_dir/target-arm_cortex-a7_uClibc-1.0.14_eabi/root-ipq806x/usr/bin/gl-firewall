@@ -1,0 +1,61 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+add_block_mac()
+{
+        local mac_list
+        ipset flush GL_MAC_BLOCK
+        config_get mac_list  block_mac mac
+        for i in ${mac_list};do
+                ipset add GL_MAC_BLOCK "$i"
+        done                               
+}  
+         
+create_ipset_entry()
+{	
+	local exist=$(ipset list GL_MAC_BLOCK 2>/dev/null)
+	[ -z "$exist" ] && {
+		ipset create GL_MAC_BLOCK hash:mac 2>/dev/null
+	}
+}
+
+init_modem_force()
+{
+	iptables -t mangle -N MODEM_FORCE_TTL 2>/dev/null
+	iptables -t mangle -C POSTROUTING -j MODEM_FORCE_TTL
+	[ ! "$?" = "0" ] && iptables -t mangle -I POSTROUTING -j MODEM_FORCE_TTL
+	iptables -t mangle -F MODEM_FORCE_TTL
+}
+
+add_firewall()
+{
+	iptables -w -C FORWARD -m set --match-set GL_MAC_BLOCK src  -j DROP  2>/dev/null
+	[ ! "$?" = "0" ] && iptables -w -I FORWARD -m set --match-set GL_MAC_BLOCK src  -j DROP
+}
+
+force_modem_ttl()
+{
+        local dev
+        local ttl
+        config_get dev $1  dev
+        config_get ttl $1 ttl
+        iptables -t mangle -A  MODEM_FORCE_TTL -o $dev -j TTL --ttl-set $ttl
+}
+
+if [ -f /etc/config/gl_firewall ];then 
+	create_ipset_entry
+	add_firewall
+	config_load gl_firewall
+	config_foreach add_block_mac
+else
+	ipset flush GL_MAC_BLOCK
+fi
+if [ -n "$(uci show glmodem|grep forceTTL)" ];then
+	init_modem_force
+	config_load glmodem
+	config_foreach force_modem_ttl forceTTL
+else
+	 iptables -t mangle -F MODEM_FORCE_TTL
+fi
+

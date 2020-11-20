@@ -1,0 +1,20 @@
+#!/bin/sh
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+mode=`uci get glconfig.bridge.mode 2>/dev/null`
+if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+        exit 1
+fi
+
+#echo "INTERFACE=$INTERFACE DEVICE=$DEVICE" >/dev/console
+if [ "$INTERFACE" = "wan" ];then
+	nodhcp=`cat cat /var/etc/dnsmasq.conf.* | grep no-dhcp-interface`
+	#echo "nodhcp:$nodhcp" >/dev/console
+	if [ "$nodhcp" = "" ];then
+		#echo "restart dnsmasq begin" >/dev/console
+		/etc/init.d/dnsmasq restart
+		#echo "restart dnsmasq end" >/dev/console
+	fi
+fi

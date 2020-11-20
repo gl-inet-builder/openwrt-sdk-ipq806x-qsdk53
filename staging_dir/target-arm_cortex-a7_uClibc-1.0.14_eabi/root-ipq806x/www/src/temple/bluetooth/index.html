@@ -1,0 +1,88 @@
+<div class="row first-row-margin" id="savedWifi" v-cloak>
+    <div class="col-xs-12">
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <h4 style="display:inline-block;position: relative;">
+                    <span class="circle active"></span>
+                    {{t('Bluetooth Status')}} <span class="betaflag">beta</span>
+                </h4>
+                <gl-btn type="default" class="pull-right moblieBtnLate" @click="$router.push('blelist')">{{t('Scan')}}</gl-btn>
+            </div>
+            <div class="panel-body">
+                <div style="margin-bottom: 15px;padding: 15px 0px;font-weight: bold;color: #333!important" class="clearfix alert-info">
+                    <span class="col-xs-1">#</span>
+                    <span class="col-xs-3">{{t('Name')}}</span>
+                    <span class="col-xs-2 text-center">{{t('Mac')}}</span>
+                    <span class="col-xs-3 text-center">{{t('Status')}}</span>
+                    <span class="col-xs-3 text-center">{{t('Action')}}</span>
+                </div>
+                <div v-for="item,index in knowlist" class="clearfix bluetooth-status" style="margin-bottom: 15px">
+                    <span class="col-xs-1">{{index + 1}}</span>
+                    <span class="col-xs-3">{{item.name}}</span>
+                    <span class="col-xs-2 text-center">{{item.mac}}</span>
+                    <span class="col-xs-3 text-center">
+                        <gl-btn type="purple" @click="getOperationpage(item)" :disabled='item.online !== 1 && item.handle !== 1 || handleIsConnectStatus'>
+                            <span>{{item.online || item.handle ? t('View') : t('Offline')}}</span>
+                        </gl-btn>
+
+                    </span>
+                    <span class="col-xs-3 text-center">
+                        <!-- <gl-btn type="default" :disabled="disconnnect_status || item.online == 1 || item.handle == 1 || connetc_status"
+                            @click="setConnpara(item, index)">
+                            <span>{{t('Connect')}}</span>
+                            <span class="fa fa-spinner fa-pulse" v-show="connetc_status && index == connectIndex"></span>
+                        </gl-btn>
+                        <gl-btn type="modify" :disabled="connetc_status || item.online == 0 || item.handle == 0 || disconnnect_status"
+                            @click="disConnect(item.handle, index)">
+                            <span>{{t('Disconnect')}}</span>
+                            <span class="fa fa-spinner fa-pulse" v-show="disconnnect_status && index == unconnectIndex"></span>
+                        </gl-btn> -->
+
+                        <gl-btn :type="item.online == 1 || item.handle == 1 ? 'modify' : 'apply'" :disabled="handleIsConnectStatus"
+                            @click="handleIsConnect(item, index)">
+                            <span>{{ item.online == 1 || item.handle == 1 ? t('Disconnect') : t('Connect') }}</span>
+                            <span class="fa fa-spinner fa-pulse" v-show="handleIsConnectStatus && index == connectIndex"></span>
+                        </gl-btn>
+                    </span>
+                </div>
+                <div class="text-center pd-10" v-if="knowlist.length == 0">
+                    <h4>{{t('No Devices')}}</h4>
+                </div>
+                <div class="text-center pd-10" style="border-top: 1px solid #dddddd">
+                    <gl-btn type="danger" @click="zbGetReboot" :disabled="rebootStatus">
+                        <span>{{t('Reset Bluetooth')}}</span>
+                        <span class="fa fa-spinner fa-pulse" v-if="rebootStatus"></span>
+                    </gl-btn>
+                </div>
+
+                <!-- know list -->
+                <!-- <span class="list-group">
+                    <span class="clearfix list-group-item" v-for="item,index in knowlist">
+                        <span class="pull-left">
+                            <div class="ble-head">{{item.name}}</div>
+                            <div>{{item.mac}}</div>
+                        </span>
+                        <span class="pull-right">
+                            <gl-btn type="default" @click="getOperationpage(item)" v-if="item.online == 1 || item.handle == 1">
+                                <span>{{t('View')}}</span>
+                            </gl-btn>
+                            <gl-btn type="default" :disabled="disconnnect_status || item.online == 1 || item.handle == 1 || connetc_status"
+                                @click="setConnpara(item, index)">
+                                <span>{{t('Connect')}}</span>
+                                <span class="fa fa-spinner fa-pulse" v-show="connetc_status && index == connectIndex"></span>
+                            </gl-btn>
+                            <gl-btn type="modify" :disabled="connetc_status || item.online == 0 || item.handle == 0 || disconnnect_status"
+                                @click="disConnect(item.handle, index)">
+                                <span>{{t('Disconnect')}}</span>
+                                <span class="fa fa-spinner fa-pulse" v-show="disconnnect_status && index == unconnectIndex"></span>
+                            </gl-btn>
+                        </span>
+                    </span>
+                    <span class="list-group-item" v-if="knowlist.length == 0">
+                        没有任何设备连接
+                    </span>
+                </span> -->
+            </div>
+        </div>
+    </div>
+</div>

@@ -43,6 +43,7 @@ extern int gjson_set_array(json_object *parent, const char *key, void *array, in
 extern int gjson_parse_file(const char *filename, json_object **obj);
 extern int gjson_save_file(const char *filename, json_object *obj);
 
+extern void gjson_parameter_escape(json_object* obj);
 #ifdef __cplusplus
 }
 #endif

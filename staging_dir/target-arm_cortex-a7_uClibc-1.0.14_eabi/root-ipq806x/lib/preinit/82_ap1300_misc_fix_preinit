@@ -1,0 +1,18 @@
+#!/bin/sh
+
+do_fix_ap1300(){
+	. /lib/ipq806x.sh
+	board=$(ipq806x_board_name)
+	[ "$board" != "ap-dk01.1-c2" ] && exit 0
+	if [ -f ${boraddata_dir}/ap1300-v11-boarddata_1.bin ]; then
+		cp ${boraddata_dir}/ap1300-v11-boarddata_0.bin ${boraddata_dir}/boarddata_0.bin
+		mv ${boraddata_dir}/ap1300-v11-boarddata_0.bin ${boraddata_dir}/boardData_1_0_IPQ4019_DK04_2G.bin
+		cp ${boraddata_dir}/ap1300-v11-boarddata_1.bin ${boraddata_dir}/boarddata_1.bin
+		mv ${boraddata_dir}/ap1300-v11-boarddata_1.bin ${boraddata_dir}/boardData_1_0_IPQ4019_DK04_5G.bin
+		echo "ap1300_bdata done. " >/dev/console
+	fi
+	
+	[ ! -f /etc/modules.d/i2c-gpio-custom ] && echo "i2c-gpio-custom bus0=0,59,58" >/etc/modules.d/i2c-gpio-custom
+}
+
+boot_hook_add preinit_main do_fix_ap1300

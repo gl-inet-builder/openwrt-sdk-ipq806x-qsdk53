@@ -1,0 +1,26 @@
+#!/bin/sh
+
+. /lib/functions.sh
+. /lib/functions/network.sh
+
+mode=`uci get glconfig.bridge.mode 2>/dev/null`
+if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+	exit 1
+fi
+
+ifaces="wan wan1 wwan tetering modem ovpn wg lan guest"
+#echo "INTERFACE=$INTERFACE DEVICE=$DEVICE" >/dev/console
+tmpinterface=`echo $INTERFACE | cut -f1 -d_` 
+for interface in "${ifaces}"
+do
+	if [ "$INTERFACE" = "$interface" -o "$tmpinterface" = "$interface" ];then
+			#network_get_device device $INTERFACE
+			#echo "device=$device" >/dev/console
+			#curwaniface=`ip route get 8.8.8.8 | awk '{print $5}'`
+			#if [ "$device" != "$curwaniface" ];then
+			/usr/sbin/glqos.sh
+			#fi
+	fi
+done
+
+	

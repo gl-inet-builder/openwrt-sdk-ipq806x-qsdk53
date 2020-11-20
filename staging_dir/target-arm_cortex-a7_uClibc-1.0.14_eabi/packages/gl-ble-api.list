@@ -1,0 +1,7 @@
+./
+./usr
+./usr/lib
+./usr/lib/libbleapi.so
+./usr/include
+./usr/include/gl
+./host

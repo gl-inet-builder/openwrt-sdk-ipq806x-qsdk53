@@ -1,0 +1,5 @@
+#!/bin/sh
+
+#This is the hidden button of AR150
+echo "$BUTTON ${ACTION}" > /dev/console
+# /etc/init.d/initswitch restart

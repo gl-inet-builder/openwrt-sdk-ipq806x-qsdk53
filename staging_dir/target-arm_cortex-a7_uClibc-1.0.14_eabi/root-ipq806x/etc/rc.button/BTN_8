@@ -1,0 +1,10 @@
+#!/bin/sh
+
+#This is the switch of AR150, left pressed, release right
+# echo "$BUTTON ${ACTION}" > /dev/console
+# /etc/init.d/initswitch restart
+
+[ $SEEN -gt 0 ] || exit 0
+
+echo "$BUTTON ${ACTION}" > /dev/console
+/usr/bin/switchaction &

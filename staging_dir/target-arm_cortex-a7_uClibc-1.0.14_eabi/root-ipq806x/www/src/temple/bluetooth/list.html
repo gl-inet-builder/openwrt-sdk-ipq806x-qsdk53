@@ -1,0 +1,169 @@
+<div class="row ">
+    <div class="col-xs-12">
+        <ol class="breadcrumb">
+            <li class="gl-active">
+                <a @click="$router.push('bluetooth')">{{t('Bluetooth Status')}}</a>
+            </li>
+            <li>
+                {{t('Bluetooth Devices')}}
+            </li>
+        </ol>
+        <div class="panel panel-default " v-cloak>
+            <div class="panel-heading">
+                <h4>
+                    <span class="circle active"></span>
+                    {{t('Bluetooth Devices')}}
+                </h4>
+            </div>
+            <div class="panel-body" v-if="scanDone && !setScanError">
+                <!-- 列表 -->
+                <transition name="slide-fade">
+                    <div v-if="page == 'one'">
+                        <div style="margin-bottom: 15px;padding: 15px 0px;font-weight: bold;color: #333!important"
+                            class="clearfix alert-info">
+                            <span class="col-xs-1">#</span>
+                            <span class="col-xs-3">{{t('Name')}}</span>
+                            <span class="col-xs-3">{{t('Mac')}}</span>
+                            <span class="col-xs-2">{{t('Rssi')}}</span>
+                            <span class="col-xs-3 text-center">{{t('Action')}}</span>
+                        </div>
+                        <div style="margin-bottom: 15px" class="list-group">
+                            <a v-for="item,index in scanlist" class="clearfix bluetooth-list list-group-item" style="padding: 8px 0px">
+                                <span class="col-xs-1">{{index + 1}}</span>
+                                <span class="col-xs-3">{{item.name}}</span>
+                                <span class="col-xs-3">{{item.mac}}</span>
+                                <span class="col-xs-2">
+                                    {{item.rssi}} dBm
+                                </span>
+                                <span class="col-xs-3 text-center">
+                                    <gl-btn type="purple" @click="connect(item)">
+                                        <span>{{t('Connect')}}</span>
+                                    </gl-btn>
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                </transition>
+                <!-- 通用 -->
+                <transition name="slide-fade">
+                    <div class="list-group panel-status" v-if="page == 'two'">
+                        <!-- <ul style="margin: 15px 10px">
+                            <li>Device: <h4>{{currDevice.name}}</h4>
+                            </li>
+                            <li>Mac: <h4 style="text-transform: uppercase;">{{currDevice.mac}}</h4>
+                            </li>
+                        </ul> -->
+                        <span class="list-group-item clearfix" style="border-top: none">
+                            <div class="pull-left pd-10">{{t('Device Name')}}</div>
+                            <div class="pull-right pd-10">{{currDevice.name}}</div>
+                        </span>
+                        <span class="list-group-item clearfix">
+                            <div class="pull-left pd-10">{{t('Device Mac')}}</div>
+                            <div class="pull-right pd-10">{{currDevice.mac}}</div>
+                        </span>
+                        <div class="ble-panel" v-for="(item, index) in serverlist">
+                            <span class="list-group-item  vpn-manage-heading vpn-client-header gl-padding-five"
+                                data-toggle="collapse" :href="'#' + item.id" @click="getChar(item, index)">
+                                <span class="text-left pull-left vpn-online-status" style="width: 85%;">
+                                    <span class="circle"></span>
+                                    <span class="ble-name">{{transformer(item.UUID)}}</span>
+                                </span>
+                                <button class="btn pull-right btn-xs">
+                                    <span class="fa fa-chevron-down"></span>
+                                </button>
+                            </span>
+                            <div class="collapse" :id='item.id'>
+                                <div v-if="!(getCharlist && loadingIndex == index)">
+                                    <span class="list-group-item clearfix" v-if="!curserverlist[index] || curserverlist[index].length == 0">
+                                        {{t('No Data')}}
+                                    </span>
+                                    <span class="list-group-item clearfix" v-for="(data, key) in curserverlist[index]">
+                                        <span class="pull-left pd-10">{{translates(data.UUID)}}
+                                            <span v-for="(item, index) in systemtranslate(data.properties)" :key="index" class="blueflag">
+                                                    {{item}}
+                                                </span>
+                                        </span>
+                                        <span class="pull-right pd-10">
+                                            <input v-model='data.value' :disabled="!isOnline" class="ble-input" @blur="setcharvalue(data, key)"></gl-input>
+                                        </span>
+                                    </span>
+                                </div>
+                                <div style="position:relative; min-height: 120px" v-else>
+                                    <gl-loading></gl-loading>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ble-btn text-center">
+                            <!-- <gl-btn type="default" @click="connect(currDevice, 'again')" :disabled="actionStatus || connectStatus || isOnline">
+                                {{t('Connect')}}
+                                <span class="fa fa-spinner fa-pulse" v-show="connectStatus"></span>
+                            </gl-btn>
+                            <gl-btn type="danger" @click="Disconnect" :disabled="actionStatus || connectStatus || !isOnline">
+                                {{t('Disconnect')}}
+                                <span class="fa fa-spinner fa-pulse" v-show="actionStatus"></span>
+                            </gl-btn> -->
+                            <gl-btn :type="isOnline ? 'danger' : 'apply'" @click="handleDeviceOperat(currDevice, 'again')" :disabled="actionStatus || connectStatus">
+                                <span>{{ isOnline ? t('Disconnect') : t('Connect') }}</span>
+                                <span class="fa fa-spinner fa-pulse" v-show="actionStatus || connectStatus"></span>
+                            </gl-btn>
+                        </div>
+                    </div>
+                </transition>
+                <!-- mipow -->
+                <transition name="slide-fade" >
+                    <div class="list-group panel-status" style="min-height: 360px;" v-if="page == 'three'">
+                        <span class="list-group-item clearfix" style="border-top: none">
+                            <div class="pull-left pd-10">{{t('Device Name')}}</div>
+                            <div class="pull-right pd-10">{{currDevice.name}}</div>
+                        </span>
+                        <span class="list-group-item clearfix">
+                            <div class="pull-left pd-10">{{t('Device Mac')}}</div>
+                            <div class="pull-right pd-10">{{currDevice.mac}}</div>
+                        </span>
+                        <span class="list-group-item clearfix">
+                            <div class="pull-left pd-10">{{t('Color')}}</div>
+                            <div class="pull-right pd-10">
+                                <color-picker v-model="mipowValue"  @change="wire_mipow" :disabled="connectStatus || actionStatus || !isOnline"></color-picker>
+                            </div>
+                        </span>
+                        <span class="list-group-item clearfix">
+                            <div class="pull-left pd-10">{{t('Brightness')}}</div>
+                            <div class="pull-right" style="padding: 10px 0">
+                                <gl-slider ref="slider" v-model="mipowLight" max="255" :width="382.5" tooltip-dir="top"
+                                    @callback="wire_mipow" :disabled="connectStatus || actionStatus || !isOnline || sliderStatus"></gl-slider>
+                            </div>
+                        </span>
+                        <div class="ble-btn text-center">
+                            <!-- <gl-btn type="default" @click="connect(currDevice, 'again')" :disabled="actionStatus || connectStatus || isOnline">
+                                {{t('Connect')}}
+                                <span class="fa fa-spinner fa-pulse" v-show="connectStatus"></span>
+                            </gl-btn>
+                            <gl-btn type="danger" @click="Disconnect" :disabled="actionStatus || connectStatus || !isOnline">
+                                {{t('Disconnect')}}
+                                <span class="fa fa-spinner fa-pulse" v-show="actionStatus"></span>
+                            </gl-btn> -->
+                            <gl-btn :type="isOnline ? 'danger' : 'apply'" @click="handleDeviceOperat(currDevice, 'again')" :disabled="actionStatus || connectStatus">
+                                <span>{{ isOnline ? t('Disconnect') : t('Connect') }}</span>
+                                <span class="fa fa-spinner fa-pulse" v-show="actionStatus || connectStatus"></span>
+                            </gl-btn>
+                        </div>
+                    </div>
+                </transition>
+            </div>
+            <div class="text-center pd-10" v-if="setScanError">
+                <h4>{{t('No Devices')}}</h4>
+            </div>
+        </div>
+        <!-- 进度条 -->
+        <div class="progress" style="margin: 10px" v-show="!scanDone && !setScanError">
+            <div class="progress-bar progress-bar-striped active" role="progressbar" :aria-valuenow="iProgress"
+                aria-valuemin="0" aria-valuemax="100" :style="progressWidth" style="width:0;color: #fff!important">
+                {{iProgress + '%'}}
+            </div>
+        </div>
+        <!-- 遮罩层 -->
+        <div v-show="loading" class="ble-cover">
+            <gl-loading style="z-index: 12"></gl-loading>
+        </div>
+    </div>
+</div>

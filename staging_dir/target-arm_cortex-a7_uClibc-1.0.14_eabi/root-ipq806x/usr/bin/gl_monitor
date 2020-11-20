@@ -1,0 +1,926 @@
+#!/bin/sh
+
+. /lib/functions.sh
+. /lib/netifd/netifd-proto.sh
+. /lib/functions/gl_util.sh
+. /lib/mwan3/mwan3.sh
+. /usr/share/libubox/jshn.sh
+. /lib/functions/network.sh
+
+timeout -t 2 pwd 1>/dev/null 2>&1
+if [ "$?" = 1 ];then
+	TIMEOUT="timeout -s KILL 2"
+else
+	TIMEOUT="timeout -t 2 -s KILL"
+fi
+
+cur_status="down"
+port_status="down"
+
+message_notify() {
+#	local number=$(cat /tmp/tertf/tertfinfo_bak 2>/dev/null |awk -F "\t" '{print $15}'|grep 1|wc -l)
+#	[ "$number" != "$clients" ] && {
+#		clients="$number"
+		killall -16 e750-mcu
+#	}
+}
+
+xe300_hostapd_event() {
+	local hostapd_pid disabled ap_en guest_en
+	disabled=$(uci get wireless.radio0.disabled 2>/dev/null)
+	[ "$disabled" = '1' ] && return
+	
+	ap_en=$(uci get wireless.default_radio0.disabled 2>/dev/null)
+	guest_en=$( uci get wireless.guest2g.disabled  2>/dev/null)
+	[ "$ap_en" = '1' ] && [ "$guest_en" = '1' ] && return
+
+	[ "$ap_en" = 1 ] || {
+                [ "$(cat /sys/class/net/wlan0/carrier 2>/dev/null)" != "1" ] && sleep 5 && \
+                [ "$(cat /sys/class/net/wlan0/carrier 2>/dev/null)" != "1" ] && sleep 5 && \
+                [ "$(cat /sys/class/net/wlan0/carrier 2>/dev/null)" != "1" ] && {
+                        logger "wlan0 not found, restart wifi"
+                        wifi
+                }
+        }
+
+	hostapd_pid=$(ubus call service list '{"name": "wpad"}' | jsonfilter -l 1 -e "@['wpad'].instances['hostapd'].pid")
+	[ -n "$hostapd_pid" ] && return
+	sleep 5
+	hostapd_pid=$(ubus call service list '{"name": "wpad"}' | jsonfilter -l 1 -e "@['wpad'].instances['hostapd'].pid")
+	[ -z "$hostapd_pid" ] && {
+		logger "hostapd missing, restart wpad"
+		uci set wireless.sta.disabled='1'
+		uci set wireless.radio0.channel='6'
+		uci commit wireless
+		/etc/init.d/wpad restart
+		wifi
+	}
+}
+
+ovpn_event() {
+	local enable=$(uci get  glconfig.openvpn.enable 2>/dev/null)
+	local exe=$(ps -w|grep openvpn|grep -E script-security 2>/dev/null)
+	local forward=$(uci get firewall.@forwarding[0].enabled 2>/dev/null)
+	[ $enable = 1 ] && [ -z "$exe" ] && [ $forward = 0 ] && {
+		sleep 3
+		enable=$(uci get  glconfig.openvpn.enable 2>/dev/null)
+		exe=$(ps -w|grep openvpn|grep -E script-security 2>/dev/null)
+		forward=$(uci get firewall.@forwarding[0].enabled 2>/dev/null)
+		[ $enable = 1 ] && [ -z "$exe" ] && [ $forward = 0 ] && {
+			echo  "VPN client failed to connect. This may be because of wrong configuration, unsupported parameters or terminated by the server." > /tmp/vpn_exception
+			echo "Please choose another VPN profile or abort the connection." >>/tmp/vpn_exception
+			#uci set  glconfig.openvpn.enable=0
+			#uci set firewall.@forwarding[0].enabled=1
+			#uci commit glconfig
+			#uci commit firewall
+			#/etc/init.d/firewall reload
+		}
+	}
+}
+
+sta_event() {
+	[ ! -h "/sys/class/net/wlan-sta" ] && return
+	
+	local try
+
+	if [ -n "$(ip address show wlan-sta 2>/dev/null | grep global)" ]; then
+		try=$(cat /proc/net/wireless | grep wlan-sta |awk -F ' ' '{print $9}' 2>/dev/null)
+
+		if [ -n $try ] && [ $try -gt 5 ]; then
+			wpa_cli flush
+		fi
+	fi
+}
+
+# $1: port 
+# $2: ifname
+wan_event() {
+	local port=${1#port}
+	local dev=$2
+	local proto
+
+	[ -z "$dev" ] && return 0
+
+	if [ -n "$(swconfig dev switch0 port $port show | grep link:up)" ]; then
+		cur_status="up"
+	else
+		cur_status="down"
+	fi
+
+	if [ "$cur_status" = "up" -a "$port_status" = "down" ]; then
+		port_status="up"
+	elif [ "$cur_status" = "down" -a "$port_status" = "up" ]; then
+		proto=$(uci get network.wan.proto)
+		if [ ! "$proto" = "static" ];then
+			if [ "$model" = "mt300n-v2" ];then
+				ifdown wan && ifup wan
+			else
+				ip link set $dev down && ip link set $dev up
+			fi
+		fi
+		port_status="down"
+	fi
+}
+
+modem_reactivate() {
+	gl_modem -B "$1" AT 'AT+CFUN=4' >/dev/null
+	sleep 1
+	gl_modem -B "$1" AT  'AT+CFUN=1' >/dev/null
+}
+
+modem_event() {
+	local dev
+	local real_ip
+	local curr_ip
+	local disable
+	local interface
+	local bus=$1
+	local device
+	local dir
+	local fail=0
+	local dir_bus
+
+	[ "$(uci get network.modem_$bus.proto 2>/dev/null)" = "directip" ] && return
+	[ -z "$(uci get network.modem_$bus.proto 2>/dev/null)" ] && return
+	device=$(uci get network.modem_$bus.device|cut -d '/' -f 3)
+	dir_bus=$(find /sys/devices/platform/  -name $device |tail -n 1|cut -d '/' -f 8|cut -d ':' -f 1)
+	dir=modem."$dir_bus"
+	[ -f /tmp/$dir/fail_count ] && {
+		local mode=$(cat /tmp/$dir/signal |cut -d '"' -f 4)
+		[ "$mode" = "gsm" -o "$mode" = "cdma" -o "$mode" = "tdma" ] && {
+			fail=$(cat /tmp/$dir/fail_count)
+			[ $fail -gt 10 ] && return
+		}
+	}
+
+	disable=$(uci get network.modem_$bus.disabled 2>/dev/null)
+	[ "$disable" = "1" ] && return
+
+	interface=$(ifstatus modem_$bus | grep l3_device | cut -d '"' -f 4)
+	[ -z $interface ] && {
+		#modem_reactivate $dir_bus
+		ubus call network.interface.modem_$bus down
+		killall -9  gcom
+		sleep 1
+		killall -9 uqmi
+		proto_set_available modem_$bus 1
+		ubus call network.interface.modem_$bus up
+		logger "modem_$bus interface miss"
+		return
+	}
+	[ "$(uci get network.modem_$bus.proto 2>/dev/null)" = "qcm" ] && return
+
+	curr_ip=$(ip address show $interface | grep global | awk -F "[ /]" '{print $6}' | grep -v :)
+	if [ -z "$curr_ip" ];then
+		modem_reactivate $dir_bus
+		ubus call network.interface.modem_$bus down
+		killall gcom
+		sleep 1
+		killall -9  uqmi
+		proto_set_available modem_$bus 1
+		ubus call network.interface.modem_$bus up
+		logger "modem_$bus ip miss"
+		return
+	fi
+
+	if [ "${interface/[0-9]/}" = wwan ];then
+		dev=$(ls /sys/class/net/$interface/device/usbmisc/)
+		[ -z $dev ] && return
+		dev=/dev/$dev
+
+		real_ip=$($TIMEOUT uqmi -d $dev --get-current-setting | grep \"ip\": | awk -F'"' '{print $4}')
+		[ -z $real_ip ] && {
+                        online=$(cat /var/run/mwan3/iface_state/modem_$bus)
+                        [ "$online" = "online" ] && return		
+		}
+		[ -z $real_ip ] && {
+			modem_reactivate $dir_bus
+			ubus call network.interface.modem_$bus down
+			sleep 1
+			killall uqmi
+			proto_set_available modem_$bus 1
+			ubus call network.interface.modem_$bus up
+			logger "modem_$bus real ip miss"
+
+			return
+		}
+
+		if [ ! $curr_ip = $real_ip ]; then
+			modem_reactivate $dir_bus
+			ubus call network.interface.modem_$bus down
+			sleep 1
+			killall uqmi
+			proto_set_available modem_$bus 1
+			ubus call network.interface.modem_$bus up
+			logger "modem_$bus ip change"
+
+			return
+		fi
+	fi
+}
+check_system_network()
+{
+	if [  -d "/var/run/mwan3track" ]; then
+		num=`find /var/run/mwan3track/ -name STATUS | wc -l`
+		flag=0                                                                                                                                                                                                  
+		if [ "$num" -gt 0 ];then
+			file=`find /var/run/mwan3track/ -name STATUS | head -n$num`
+			for i in $file
+			do
+				status=`cat $i`
+				if [ "$status" = "online" ];then
+					flag=1
+					break
+				fi
+				num=`expr $num - 1`
+			done
+		fi
+		oldvalue=`cat /sys/class/leds/gl-x1200\:red\:system/brightness`
+		if [ "$flag" = 1 ];then
+			if [ "$oldvalue" != 0 ];then
+				echo 0 > /sys/class/leds/gl-x1200\:red\:system/brightness
+			fi
+		else
+			if [ "$oldvalue" = 0 ];then
+				echo 1 > /sys/class/leds/gl-x1200\:red\:system/brightness
+			fi
+		fi
+	fi
+}
+update_4g_signal()
+{
+	$TIMEOUT uqmi -d $1 -s --get-signal-info 2>/dev/null >/tmp/modem.$2/signal 
+	if [ ! -d "/tmp/modem.$2/" ];then
+		mkdir -p /tmp/modem.$2
+	fi
+	if [ -f "/tmp/modem.$2/signal" ];then
+		new=`cat /tmp/modem.$2/signal`
+	else
+		new=""
+	fi
+	if [ -f "/tmp/modem.$2/signal_old" ];then
+		old=`cat /tmp/modem.$2/signal_old`
+	else
+		old=""
+	fi
+	if [ "$new" != "$old" ];then
+		cp /tmp/modem.$2/signal /tmp/modem.$2/signal_old  -rf  2>/dev/null
+		if [ "$bus" != "1-1.4" ];then
+			modem_signal_led.sh $2
+		fi
+	fi	
+}
+check_4g_signal()
+{
+	buslist=""
+	flag=0
+	file=`find /sys/devices/platform/ -name cdc-wdm*`
+	filenum=`find /sys/devices/platform/ -name cdc-wdm* | wc -l`
+	if [ "$file" = "" ];then
+		gl_uart 474c180100 1>/dev/null 2>&1
+	else
+		for i in $file
+		do
+			bus=`echo $i | cut -f8 -d\/`
+			dev=`echo $i | cut -f11 -d\/`
+			tdev="/dev/${dev}"
+			if [ "$bus" = "1-1.4" ];then
+				buslist="$buslist $bus"
+				flag=1
+			else
+				buslist="$buslist $bus"
+			fi
+			update_4g_signal $tdev $bus
+		done
+	fi
+
+	hwversion=`hexdump -v -n 1 -s $((0x9c)) -e '1/1 "%x"' /dev/mtd2`
+	simnum=`cat /sys/kernel/debug/gpio | grep sim | awk '{print $6}'`
+	if [ $filenum = 1 -a "$flag" != 1 ];then
+		for s in $buslist;do
+			if [ "$s" = "1-1.2" ];then #4G 
+				gl_uart 474c1a0100 1>/dev/null 2>&1
+			elif [ "$s" = "2-1.2" ];then
+				if [ "$hwversion" = "53" -a "$simnum" = "hi" ];then
+					gl_uart 474c190100 1>/dev/null 2>&1
+				else
+					gl_uart 474c1a0100 1>/dev/null 2>&1
+				fi
+			fi
+		done
+	elif [ "$filenum" = 1 -a "$flag" = 1 ];then
+		for s in $buslist;do
+			if [ "$s" = "1-1.4" ];then
+				gl_uart 474c180100 1>/dev/null 2>&1
+			fi
+		done
+	elif [ "$filenum" = 2 -a "$flag" = 1 ];then
+		for s in $buslist;do
+			if [ "$s" = "1-1.2" ];then #4G 
+				gl_uart 474c1a0100 1>/dev/null 2>&1
+			elif [ "$s" = "2-1.2" ];then
+				if [ "$hwversion" = "53" -a "$simnum" = "hi" ];then
+					gl_uart 474c190100 1>/dev/null 2>&1
+				else
+					gl_uart 474c1a0100 1>/dev/null 2>&1
+				fi
+			fi
+		done
+	fi
+}
+upload_modem_signal() 
+{
+	simflag=`gl_modem -B $1 sim-status`
+	json_init 
+	json_add_string "api" "/modem/signal/info"	
+	if [ "$simflag" = "NO_SIM" ];then
+		json_add_string "sim" "1"
+		json_close_object
+		data=`json_dump`
+		ubus call mqtt pub "$data"
+		return
+	else
+		json_add_string "sim" "0"
+	fi
+	modeminfo=`gl_modem -B $1 signal`	
+	if [ "$modeminfo" != "" ];then
+		signals=`echo $modeminfo |jsonfilter -e @.signals[0]`
+		mode=`echo $modeminfo | jsonfilter -e @.mode`
+		strength=`echo $modeminfo | jsonfilter -e @.strength`
+	else
+		signals=""
+		mode="2G"
+		strength=1
+	fi
+	json_add_string "mode" $mode
+	json_add_string "signum" $strength
+	json_add_string "signals" "$signals"
+	json_close_object
+	data=`json_dump`
+	#echo "data:$data" >/dev/console
+	#echo "data:$data" >/dev/tty
+	ubus call mqtt pub "$data"
+}
+upload_modem_signal_new() 
+{
+	simflag=`gl_modem -B $1 sim-status`
+	json_add_object 
+	json_add_string "bus" "$1"
+	if [ "$simflag" = "NO_SIM" ];then
+		json_add_string "sim" "1"
+	else
+		json_add_string "sim" "0"
+
+		modeminfo=`gl_modem -B $1 signal`
+		if [ "$modeminfo" != "" ];then
+			signals=`echo $modeminfo |jsonfilter -e @.signals[0]`
+			mode=`echo $modeminfo | jsonfilter -e @.mode`
+			strength=`echo $modeminfo | jsonfilter -e @.strength`
+		else
+			signals=""
+			mode="2G"
+			strength=1
+		fi
+		json_add_string "mode" $mode
+		json_add_string "signum" $strength
+		json_add_string "signals" "$signals"
+	fi
+	#data=`json_dump`
+	json_close_object
+}
+upload_internal_4G_modem_signal()
+{
+	flmqtt=`ubus list | grep mqtt`
+	if [ "$flmqtt" != "mqtt" ];then
+		return
+	fi
+
+	json_init
+	json_add_string "api" "/modem/signal/info"
+	json_add_array "modeminfo"
+	if [ "$model" = "x1200" ];then
+		upload_modem_signal_new 1-1.2
+		upload_modem_signal_new 2-1.2
+	elif [ "$model" = "mifi" -o "$model" = "x750" -o "$model" = "e750" -o "$model" = "xe300" ];then
+		upload_modem_signal_new 1-1.2
+	elif [ "$model" = "x300b" ];then
+		upload_modem_signal_new 1-1
+	elif [ "$model" = "ap1300" ]; then
+		upload_modem_signal_new $(uci -q get glconfig.modem.bus)
+	fi
+
+	json_close_array
+	json_close_object
+	data=`json_dump`
+	senddata=`echo $data | sed 's/ //g'`
+	#echo "data:$data" >/dev/console
+	ubus call mqtt pub "$senddata"
+}
+v2counter=0
+v2need_reload=yes
+check_mt300n_v2_switch() {
+	local curr_stat=$(swconfig dev switch0 port 0 show | grep link:up)
+
+	if [ -z "$curr_stat" ]; then
+		v2counter=$((v2counter+1))
+	else
+		v2counter=0
+		v2need_reload="yes"
+	fi
+
+	if [ "$v2counter" = "3" -a "$v2need_reload" = "yes" ]; then
+		swconfig dev switch0 load network
+		v2need_reload="no"
+	fi
+
+	if [ "$v2counter" = "4" ]; then
+		v2counter=0
+	fi
+}
+peers_func()
+{
+	local name 
+	local mainserver
+	mainserver=`uci get wireguard.@proxy[0].main_server 2>/dev/null`
+	config_get name $1 "name"
+	if [ "$name" != "" -a "$name" != "$mainserver" ];then
+		continue	
+	fi	
+	config_get end_point $1 "end_point"
+	if [ "$end_point" != "" ];then
+		host=$(echo $end_point | cut -f1 -d:)
+	fi
+}
+get_wan_interface()
+{
+     iface=`mwan3_report_policies_v4 2>/dev/null | grep % | awk '{print $1}'`
+     if [ "$iface" != "" ];then
+         for i in $iface; do
+             if [ "$i" = "wwan" ];then
+                 if [ "$model" = "b1300" -o "$model" = "s1300" -o "$model" = "ap1300" -o "$model" = "b2200" ];then
+                     wiface="wlan-sta0"
+                 elif [ "$model" = "mt300n-v2" -o "$model" = "vixmini" -o "$model" = "n300" ];then
+                     wiface="apcli0"
+                 else
+                     wiface="wlan-sta"
+                 fi
+                 network_get_device wiface $i
+                 network_get_gateway gw $i
+             else
+                 network_get_device wiface $i
+                 network_get_gateway gw $i
+             fi
+             if [ "$wiface" != "" ];then
+                 break
+             fi
+         done
+    else
+         gw=`ip route | grep default | head -n1 | awk '{print $3}'`
+         wiface=`ip route | grep default | head -n1 | awk '{print $5}'`
+    fi
+}
+check_wg_host_route()
+{
+	wiface=""
+	gw=""
+	host=""
+	flag=0
+	enable=`uci get wireguard.@proxy[0].enable 2>/dev/null`
+	if [ "$enable" = "1" ];then
+		host=`uci get wireguard.@proxy[0].host 2>/dev/null`
+		if [ "$host" = ""  ];then
+			flag=1
+			config_load wireguard
+			config_foreach peers_func peers
+		fi
+		ip=$(echo $host | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}')
+		if [ "$host" != "" ];then
+			old_status=""
+			new_status=""
+			old_status=`ubus call network.interface dump | tr -d '[]{}:\",\n\r\/ \t' | tr -d '[0-9]'`
+			new_status=`echo $__NETWORK_CACHE | tr -d '[]{}:\",\n\r\/ \t' | tr -d '[0-9]'`
+			if [ "$old_status" != "$new_status" ];then
+				unset __NETWORK_CACHE
+			fi
+			get_wan_interface
+			if [ "$flag" = "1" ];then	
+				ip=`resolveip $host | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -v ":" | head -n 1`
+				if [ "$ip" = ""  ];then
+					ip=`nslookup $host 2>/dev/null | grep -v "127.0.0.1" | grep -v "::" | awk '/Address/ {print $3}'`
+				fi
+				if [ "$ip" != "" ];then
+					dev=$(ip route list $ip| sed 's/.*dev \(.*\)/\1/')
+				fi
+			else
+				dev=$(ip route list $host | sed 's/.*dev \(.*\)/\1/')
+			fi
+
+			if [ "$dev" != "" -a "$wiface" != "" ];then 
+				#echo "dev3:$dev wiface1:$wiface"
+				if [ $wiface = $dev ];then 
+					#echo "dev=wiface:$wiface"
+					#echo "flag=$flag"
+					return 0
+				fi
+			fi
+			#echo "dev=$dev wiface=$wiface flag=$flag"
+			[ -n "$wiface"  ] && {
+			if [ -n "$gw"  ];then
+				if [ "$ip" != ""  -a "$flag" != 1 ];then
+					ip route del $ip 2>/dev/null
+					ip route add $ip via $gw dev $wiface 2>/dev/null
+					#echo "ip route add $ip via $gw dev $wiface"
+				else
+					route del $host 2>/dev/null
+					route add $host gw $gw dev $wiface 2>/dev/null
+					#echo "route add $host gw $gw dev $wiface"
+				fi
+			fi
+		}
+	fi
+fi
+}
+check_modem_proto()
+{
+	mswitch=1
+	ifaces=`mwan3_report_policies_v4 2>/dev/null | grep %  |  awk '{print $1}'`
+	if [ "$ifaces" != "" ];then
+		for iface in $ifaces;do
+			tmpinterface=`echo $iface | cut -f1 -d_` 
+			proto=`uci get network.$iface.proto 2>/dev/null`
+			disabled=`uci get network.$iface.disabled 2>/dev/null`
+			if [ "$proto" = "3g" -a "$disabled" = 0 ];then
+					mswitch=0
+			fi
+			if [ "$tmpinterface" = "modem" -a "$proto" = "3g" -a "$disabled" = 0 ];then
+				flag=`find /sys/fast_classifier/ -name debug_info 2>/dev/null`
+				if [ "$flag" != "" ];then
+					/etc/init.d/shortcut-fe stop
+					flag=`find /sys/fast_classifier/ -name debug_info 2>/dev/null`
+					if [ "$flag" != "" ];then
+						/etc/init.d/shortcut-fe stop
+					fi
+					break;
+				fi
+			fi
+		done
+	else
+		iface=`ip route get 8.8.8.8 2>/dev/null | grep 3g-modem | awk '{print $5}' |cut -f2 -d\-`
+		proto=`uci get network.$iface.proto 2>/dev/null`
+		disabled=`uci get network.$iface.disabled 2>/dev/null`
+		flag=`find /sys/fast_classifier/ -name debug_info 2>/dev/null`
+		if [ "$proto" = "3g" -a "$disabled" = 0 ];then
+			mswitch=0
+		fi
+		if [ "$proto" = "3g" -a "$flag" != "" -a "$disabled" = 0 ];then
+			/etc/init.d/shortcut-fe stop
+		fi
+	fi
+	flag=`find /sys/fast_classifier/ -name debug_info 2>/dev/null`
+	if [ "$flag" = "" -a "$mswitch" = 1 ];then
+		flagqca=`expr $flagqca + 1`
+		if [ "$flagqca" = 2 ];then
+			/etc/init.d/shortcut-fe start
+			flagqca=0
+		fi
+	fi
+}
+
+restore_guest_dnsmasq() {
+	local brguest dnsmasq_guest enable_guest_5g enable_guest_2g
+        enable_guest_5g=`uci get wireless.guest5g.disabled 2>/dev/null`
+        enable_guest_2g=`uci get wireless.guest2g.disabled 2>/dev/null`
+        if [ "$enable_guest_5g" = 0 -o "$enable_guest_2g" = 0 ]; then
+		dnsmasq_guest=$(cat /var/etc/dnsmasq.conf.* | grep "set:guest")
+		[ -n "$dnsmasq_guest" ] && return
+
+                brguest=$(ifconfig br-guest 2>/dev/null|grep UP)
+                [ -n "$brguest" ] && {
+                        logger -t gl_monitor "dhcp-range for guest network is missing, restart dnsmasq"
+                        /etc/init.d/dnsmasq restart
+                }
+        fi
+}
+
+restore_lan_dnsmasq() {
+	local brlan dnsmasq_lan brlan_ip mode
+	mode=`uci get glconfig.bridge.mode 2>/dev/null`
+	if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+		return
+        fi
+
+	dnsmasq_lan=$(cat /var/etc/dnsmasq.conf.* | grep "set:lan")
+	[ -n "$dnsmasq_lan" ] && return
+
+        brlan=$(ifconfig br-lan 2>/dev/null|grep UP)
+        if [ -n "$brlan" ]; then
+                logger -t gl_monitor "dhcp-range for lan network is missing, restart dnsmasq"
+                /etc/init.d/dnsmasq restart
+        fi
+}
+
+restore_mqtt_process() {
+	local enable flag_mqtt pid_mqtt
+	enable=`uci get glconfig.cloud.enable 2>/dev/null`
+	if [ "$enable" = 1 ]; then
+		flag_mqtt=`ubus list | grep mqtt`
+		pid_mqtt=`pidof gl_mqtt_service`
+		if [ "$flag_mqtt" = "" -o "$pid_mqtt" = "" ]; then
+			/etc/init.d/gl_mqtt start
+		fi
+	fi
+}
+
+restore_portal_process() {
+	local enable pid_portal enable_5g enable_2g
+	enable=`uci get nodogsplash.@nodogsplash[0].enable 2>/dev/null`
+	enable_5g=`uci get wireless.guest5g.disabled 2>/dev/null`
+	enable_2g=`uci get wireless.guest2g.disabled 2>/dev/null`
+	if [ "$enable" = 1 ]; then
+		pid_portal=`pidof nodogsplash`
+		if [ "$pid_portal" = "" ]; then
+			if [ "$enable_5g" = 0 -o "$enable_2g" = 0 ]; then
+				/etc/init.d/nodogsplash start
+			fi
+		fi
+	fi
+}
+
+model=$(get_model)
+counter=0
+if [ "$model" = "x1200" ];then
+	num4g=0
+	flagqca=0
+	check_4g_signal
+	upload_internal_4G_modem_signal
+elif [ "$model" = "mifi" -o "$model" = "x750" -o "$model" = "x300b" -o "$model" = "xe300" ];then
+	upload_internal_4G_modem_signal
+fi
+
+wifi_lock=0
+check_wifi_lock()
+{
+	if [ "$(pgrep -f "lock /var/run/wifilock" | wc -l)" -eq 2 ]; then
+		wifi_lock=$(($wifi_lock+1))
+	else
+		wifi_lock=0
+	fi
+	if [ "$wifi_lock" -gt 2 ]; then
+		kill $(pgrep -f "lock /var/run/wifilock")
+	fi
+}
+
+check_internet()
+{
+	local trackip
+	trackip=$(uci get mwan3.wan.track_ip)
+	if [ -z "$trackip" ]; then
+		trackip="8.8.4.4 8.8.8.8 208.67.222.222 208.67.220.220"
+	fi
+	for ip in ${trackip}; do
+		ping -c 1 -W 2 -s 56 -q $ip &> /dev/null
+		ret=$?
+		[ $ret = 0 ] && INTERNET=1 && return
+	done
+	[ "$(curl --connect-timeout 5 -s -w %{http_code} http://captive.apple.com/ -o /dev/null)" = "200" ] && INTERNET=1
+}
+
+check_internet_led()
+{
+	if [ -z "$(ls -d /sys/class/net/3g* 2>/dev/null)" -a "$(cat /sys/class/net/wwan0/operstate 2>/dev/null)" = "down" -o -z "$(ls -d /sys/class/net/wwan0 2>/dev/null)" ]; then
+		if [ "$(cat /tmp/run/modem_up_flag)" != 0 ]; then
+			. /etc/diag.sh
+			env -i ACTION=ifdown INTERFACE=modem_2_1 /sbin/hotplug-call iface
+			env -i ACTION=ifdown INTERFACE=modem_1_1 /sbin/hotplug-call iface
+		fi
+		echo 0 >/tmp/run/modem_up_flag
+	else
+		echo 1 >/tmp/run/modem_up_flag
+	fi
+	if [ "$(uci get system.pwr_led.default)" = 1 ]; then
+		. /etc/diag.sh
+
+		if [ "$(uci -q get glconfig.bridge.mode)" = "ap" -o "$(uci -q get glconfig.bridge.mode)" = "wds" ]; then
+			INTERNET=0
+			check_internet
+			if [ "$INTERNET" = 1 ]; then
+				set_led_state has_internet
+			else
+				set_led_state no_internet
+			fi
+		else
+			if [ -n "$(grep online /var/run/mwan3/iface_state/ -nr)" ]; then
+				set_led_state has_internet
+			else
+				set_led_state no_internet
+			fi
+		fi
+	fi
+}
+
+check_mwan3_connected(){
+	if [ "$(uci -q get mwan3.globals.enabled)" = 1 ]; then
+		if [ -z "$(ipset list mwan3_connected_v4 | egrep '[0-9]{1,3}(\.[0-9]{1,3}){3}')" ]; then
+			/etc/init.d/mwan3 restart
+		fi
+	fi
+}
+
+while [ true ]; do
+	let counter=counter+1
+
+    [ $(($counter%3)) = 0 ] && {
+         ovpn_event
+    }
+    [ $(($counter%10)) = 0 ] && {
+		check_wg_host_route
+    }
+    [ $(($counter%10)) = 0 ] && {
+         restore_guest_dnsmasq
+         restore_lan_dnsmasq
+    }
+
+    [ $(($counter%20)) = 0 ] && {
+		restore_mqtt_process
+		restore_portal_process
+    }
+    
+    [ $counter = 60 ] && counter=0
+
+	case "$model" in
+	"ar750")
+		sta_event
+		;;
+	"ar750s")
+		sta_event
+		wan_event "port1" "eth0.2"
+		;;
+	"x1200" )
+		sta_event
+		curmode=`uci get glconfig.bridge.mode 2>/dev/null`
+		if [ "$curmode" = "" -o "$curmode" = "router" ];then
+			check_modem_proto
+		fi
+		wanflag=`uci get glconfig.general.wan2lan 2>/dev/null`
+		if [ "$wanflag" != "1" ];then
+			wan_event "port5" "eth0.2"
+		fi
+		[ $counter = 20 ] && {
+			modem_event 1_1_2
+			modem_event 2_1_2
+			modem_event 1_1_4
+			upload_internal_4G_modem_signal
+			counter=0
+		}
+		num4g=`expr $num4g + 1`
+		check_system_network
+		[ $num4g = 20 ] && {
+			check_4g_signal
+			num4g=0
+		}
+		;;
+	"x750")
+		sta_event
+		[ $counter = 20 ] && {
+			modem_event 1_1_2
+			modem_event 1_1_3
+			upload_internal_4G_modem_signal
+				
+			counter=0
+		}
+		;;
+	"xe300")
+		[ $(($counter%3)) = 0 ] && xe300_hostapd_event
+		[ $counter = 20 ] && {
+			modem_event 1_1_2
+			upload_internal_4G_modem_signal
+				
+			counter=0
+		}
+		;;
+	"x300b")
+		sta_event
+		[ $counter = 20 ] && {
+			modem_event 1_1
+			upload_internal_4G_modem_signal
+				
+			counter=0
+		}
+		;;
+	"mifi")
+		[ $(($counter%10)) = 0 ] && {
+			[ -f "/usr/bin/e750-mcu" ] && e750-mcu
+		}
+		[ $counter = 20 ] && {
+			modem_event 1_1_2
+			upload_internal_4G_modem_signal
+			modem_event 1_1_3
+			counter=0
+		}
+		;;
+	"n300"|\
+	"vixmini")
+		wan_event "port0" "eth0"
+		;;
+	"mt300n-v2")
+		[ $counter = 20 ] && {
+			modem_event 1_1
+			counter=0
+		}
+		wan_event "port0" "eth0.2"
+		check_mt300n_v2_switch
+		;;
+	"mt1300")
+		[ $counter = 20 ] && {
+			if [ -e /sys/bus/usb/devices/1-1 ];then
+				modem_event 1_1
+			fi
+			counter=0
+		}
+		wan_event "port4" "eth0.2"
+
+		for i in `seq 1 8`
+		do
+			br=`brctl show br-lan 2>/dev/null | grep br-lan`
+			if [ -n "$br" ];then
+				break
+			fi
+			sleep 3
+		done
+		if [ -z "$br" ];then
+			kill -9 $(pgrep -f '/sbin/netifd') 2>/dev/null
+			/sbin/netifd &
+			sleep 10
+			kill -9 $(pgrep -f '/sbin/netifd') 2>/dev/null
+			/etc/init.d/network restart
+			logger -t gl_monitor "gl_monitor detects that br-lan startup failure and now restarts the network"
+		fi
+		;;
+	"mt300a"|\
+	"mt300n")
+		wan_event "port0" "eth0.2"
+		;;
+        "e750")
+		sta_event
+		[ $(($counter%3)) = 0 ] && {
+			message_notify
+		}
+                [ $counter = 20 ] && {
+                        modem_event 1_1_2
+						upload_internal_4G_modem_signal
+                        counter=0
+                }
+                ;;
+	"mv1000")
+		[ $counter = 20 ] && {
+			if [ -d "/sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.2/" ];then
+				modem_event 1_1_1
+			else
+				modem_event 1_1
+			fi
+			counter=0
+		}
+		;;
+	"b1300"|\
+	"ap1300"|\
+	"b2200"|\
+	"s1300")
+		[ $(($counter%10)) = 0 ] && {
+			if [ "$model" = "ap1300" ]; then
+				modem_event 1_1
+				modem_event 2_1
+				upload_internal_4G_modem_signal
+				check_wifi_lock
+				check_internet_led
+				check_mwan3_connected
+			fi
+			uflag=`uci get glbigdata.bigdata.enable 2>/dev/null`
+			if [ "$uflag" = "1" ];then
+				 cpu=`top -b -n1 | grep gl_upload | grep -v "grep" | awk '{print $7}' | cut -f1 -d\%`
+				 time=`date`
+				 if [ "$cpu" -ge "10" ];then
+					echo "$time restart1 gl_upload cpu:$cpu" >/tmp/upload_monitor
+					/etc/init.d/gl_bigdata restart
+				 fi
+				 if [ -f "/tmp/upload_timestamp" ];then
+					utstamp=`cat /tmp/upload_timestamp`
+				 fi
+				 if [ -f "/tmp/current_timestamp" ];then
+					crstamp=`cat /tmp/current_timestamp`
+				 fi
+				 if [ "$utstamp" != "" -a "$crstamp" != "" ];then
+				 	if [ "$utstamp" != $crstamp ];then
+						echo "$time restart gl_upload" >/tmp/upload_monitor
+						/etc/init.d/gl_bigdata restart
+						echo "$utstamp" >/tmp/upload_timestamp
+						echo "$utstamp" >/tmp/current_timestamp
+				 	fi
+				 fi
+			fi
+		}
+		;;
+	*)
+		;;
+	esac
+	sleep 3
+done

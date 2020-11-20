@@ -1,0 +1,26 @@
+#!/bin/sh /etc/rc.common
+
+START=10
+
+start(){
+	tmodel=$(awk -F': ' '/machine/ {print tolower($NF)}' /proc/cpuinfo |cut -d- -f2-)
+	echo "tmodel:$tmodel" >/tmp/x300b_init.log
+	if [ "$tmodel" = "x300b" ];then
+	echo 1 4 1 7 > /proc/sys/kernel/printk
+	glsrc=$(cat /etc/opkg/distfeeds.conf | grep glinet_glinet)
+	if [ -n $glsrc ];then
+		echo src/gz glinet_glinet http://download.gl-inet.com.s3-website.us-east-2.amazonaws.com/releases/packages-3.x/ar71xx/glinet   >>  /etc/opkg/distfeeds.conf
+	fi
+	/usr/bin/res_lte
+	/usr/bin/modem_auto &
+	/usr/bin/watchdog_start
+#	/usr/bin/watchdog &
+        uci set  rs485.mqtt.status='0'
+	uci set  rs485.socket.status='0'
+	uci commit rs485
+		echo "start watchdog" >>/tmp/x300b_init.log
+	fi
+	echo "init end" >>/tmp/x300b_init.log
+}
+
+

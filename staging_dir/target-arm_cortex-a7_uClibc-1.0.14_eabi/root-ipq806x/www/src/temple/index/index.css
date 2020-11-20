@@ -1,0 +1,11 @@
+.connected{
+  background-color: #22f4bb;
+  display: block;
+}
+.connecting{
+  background-color: #FFCC33;
+  display: block;
+}
+.off{
+  display: none;
+}

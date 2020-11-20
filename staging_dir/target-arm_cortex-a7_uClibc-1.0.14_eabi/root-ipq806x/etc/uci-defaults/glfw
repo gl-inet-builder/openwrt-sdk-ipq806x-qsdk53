@@ -1,0 +1,18 @@
+#!/bin/sh
+
+mode=`uci get glconfig.bridge.mode`
+if [ "$mode" = "ap" -o "$mode" = "wds" -o "$mode" = "relay" ];then
+	exit 1
+fi
+
+s=firewall.glfw
+uci get "$s" >/dev/null && exit 0
+uci batch <<-EOF
+	set $s=include
+	set $s.type=script
+	set $s.path=/usr/bin/glfw.sh
+	set $s.reload=1
+	commit firewall
+EOF
+
+exit 0

@@ -1,0 +1,27 @@
+#!/bin/sh
+
+while true
+do
+if [ ! -e /tmp/modem.1-1 ];then
+
+modem=`cat /etc/config/network  |grep modem`
+if [ -n $modem ];then
+	gl_modem -B 1-1 connect-auto
+fi
+	status=`uci get  network.modem_1_1.disabled`
+	echo $status
+		if [[ -z $status ]] || [[ $status != 0 ]];then
+		       uci set  network.modem_1_1.disabled='0'
+       		       uci commit   network
+       		       /etc/init.d/network reload 
+		else
+			break
+		fi
+else
+	break
+fi
+sleep 1
+done
+sleep 40
+/etc/init.d/led reload 2 > /dev/null
+

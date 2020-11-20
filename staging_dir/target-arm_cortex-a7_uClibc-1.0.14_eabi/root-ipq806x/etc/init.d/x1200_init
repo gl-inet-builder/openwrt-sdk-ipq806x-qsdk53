@@ -1,0 +1,43 @@
+#!/bin/sh /etc/rc.common
+
+START=10
+
+start(){
+	tmodel=$(awk -F': ' '/machine/ {print tolower($NF)}' /proc/cpuinfo |cut -d- -f2-)
+	echo "tmodel:$tmodel" >/tmp/x1200_init.log
+	if [ "$tmodel" = "x1200" ];then
+		/usr/bin/watchdog &
+		echo "start watchdog" >>/tmp/x1200_init.log
+		hwversion=`hexdump -v -n 1 -s $((0x9c)) -e '1/1 "%x"' /dev/mtd2`
+		echo "hwversion:$hwversion" >>/tmp/x1200_init.log
+		if [ "$hwversion" = "53" ];then
+			simnum=`uci get glmodem.sim.sim_num 2>/dev/null`
+			echo "simnum:$simnum" >>/tmp/x1200_init.log
+			if [ "$simnum" = "2" ];then
+				GPIO=1 # sim switch gpio
+				if [ ! -e /sys/class/gpio/gpio${GPIO} ];then
+					echo $GPIO >/sys/class/gpio/export
+				fi
+
+				if [ "`cat /sys/class/gpio/gpio${GPIO}/direction`" != "out" ];then
+					echo out >/sys/class/gpio/gpio${GPIO}/direction
+				fi
+				echo 1 > /sys/class/gpio/gpio${GPIO}/value
+				echo "set gpio1 to hi" >>/tmp/x1200_init.log
+				echo 1 > /sys/class/gpio/gpio15/value
+				echo "hardware power1" >>/tmp/x1200_init.log
+				sleep 3
+				echo "hardware power2" >>/tmp/x1200_init.log
+				echo 0 > /sys/class/gpio/gpio15/value
+				echo "hardware power3" >>/tmp/x1200_init.log
+			fi
+		fi
+
+		uartinit 9600 /dev/ttyUSB0
+		uartinit 9600 /dev/ttyUSB1
+		/usr/bin/rtc.sh&
+	fi
+	echo "init end" >>/tmp/x1200_init.log
+}
+
+

@@ -1,0 +1,851 @@
+#!/bin/sh /etc/rc.common
+. /lib/functions/gl_util.sh
+
+START=99
+
+model=""	
+mac=""
+ddns=""
+flag=""
+restart=0
+num=0
+interface=""
+#是否有内置网卡的标志
+dflag=0
+global=""
+
+read_factory_data() {
+    #get basic device information
+
+    model=$(get_model)
+    model=$(echo $model | awk '{ print toupper($1); }')
+    mac=$(get_ssid_suffix)
+    ddns=$(get_default_sn)
+}
+
+check_wireless_num()
+{   
+	local name=''
+    num=0
+    while true
+    do  
+		name=''
+        name=`uci -q get wireless.radio${num}.name`
+        
+		#[ "$name" = "8192EU" ] && {
+		#	num=$((num+2))
+		#	continue
+		#} 
+        [ "$name" = "" ] && break
+        num=$((num+1))
+    done
+}
+
+check_wireless_configure(){
+	local j=0
+	local name=''
+	local driver=$1
+	interface=''
+
+	while true
+	do
+		name=`uci -q get wireless.radio${j}.name`
+		[ "$name" = "" ] && break
+		if [ "$driver" = "$name" ];then
+			interface=`uci -q get wireless.radio${j}.phy`
+			break
+		else
+			name=''
+		fi
+
+		j=$((j+1))
+	done
+
+	echo $name
+}
+
+check_driver_current()
+{
+	local name=$1
+	local driver=''
+	local phy=''
+
+	case $name in
+		"8192EU")
+			driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.2/1-1.2:1.0/ieee80211/phy*/device/ -al | grep "rtl8192eu"`	
+			[ "$driver" != "" ] && phy=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.2/1-1.2:1.0/ieee80211/phy*/ | grep phy | head -n 1 | awk -F '\/' '{print $13}'`
+		;;
+		"8192EUE")
+			driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/device/ -al | grep "rtl8192eu"`
+			[ "$driver" != "" ] && phy=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/ | grep phy | head -n 1 | awk -F '\/' '{print $13}'`
+		;;
+		"8821CU")
+			driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/device/ -al | grep "rtl8821cu"`
+			[ "$driver" != "" ] && phy=`cat /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/name`
+		;;
+		"8812AU")
+			driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/device/ -al | grep "rtl8812au"`
+			[ "$driver" != "" ] && phy=`cat /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/name`
+		;;
+		"8811AU")
+			local tmp=''
+			tmp=`check_mv1000_wifi_driver "8811AU"`
+			[ "$tmp" = "" ] && {
+				driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/device/ -al | grep "rtl8821au"`
+				[ "$driver" != "" ] && {
+					phy=`cat /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/name`
+					flag="8811AU"
+				}
+			}
+		;;
+		"8821AU")
+			driver=`ls /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/device/ -al | grep "rtl8821au"`
+			[ "$driver" != "" ] && phy=`cat /sys/devices/platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0/ieee80211/phy*/name`
+		;;	
+	esac
+	
+	echo "$phy"	
+}
+
+set_wireless_phy(){
+	local j=0
+	local name=''
+	local driver=$1
+	local phy=$2
+		
+	while true
+	do
+		name=`uci -q get wireless.radio${j}.name`
+		[ "$name" = "" ] && break
+		if [ "$driver" = "$name" ];then
+			uci set wireless.radio${j}.phy=$phy
+			uci commit wireless
+			break
+		fi
+		
+		j=$((j+1))
+	done
+
+	[ "$driver" = "8192EU" ] && {
+		j=$((j+1))
+		local pphy=`echo $phy | tr -cd "[0-9]"`
+		pphy=$((pphy+1))
+		uci set wireless.radio${j}.phy="phy"${pphy}
+		uci commit wireless
+
+		j=$((j+1))
+		pphy=$((pphy+1))
+		uci set wireless.radio${j}.phy="phy"${pphy}
+		uci commit wireless
+	}
+}
+
+fix_ssid_24g()
+{
+	#new ssid format
+	ssid_prefix="GL-"${model}
+	ssid=${ssid_prefix}"-"${mac}
+
+	local device=$1
+	local index=$2
+
+	uci set wireless.$device.hwmode='11g'
+	uci set wireless.$device.name='8192EU'
+	uci set wireless.$device.band='2G'
+	uci set wireless.$device.disabled='0'
+	uci set wireless.@wifi-iface[$index].ssid=$ssid
+	uci set wireless.@wifi-iface[$index].ifname=wlan0
+	uci set wireless.@wifi-iface[$index].encryption=psk2
+	uci set wireless.@wifi-iface[$index].key=goodlife
+	uci set wireless.@wifi-iface[$index].multi_ap=1
+
+	case "$model" in
+		"MV1000")
+			uci set wireless.$device.channel='6'
+			uci set wireless.$device.htmode='HT401'
+			;;
+	esac
+
+	uci commit wireless
+	restart=1
+}
+
+repeater_interface_init()
+{
+	local device=$1
+	local index=$2
+	local name=$3
+
+	if [ "$name" = "8192EU" ];then
+		uci set wireless.$device.hwmode='11g'
+		uci set wireless.$device.name='8192EU'
+		uci set wireless.$device.band='2G'
+		uci set wireless.$device.disabled='1'
+
+		uci delete wireless.@wifi-iface[$index].ssid
+		uci set wireless.@wifi-iface[$index].ifname=wlan2
+		uci set wireless.@wifi-iface[$index].mode=sta
+		uci set wireless.@wifi-iface[$index].wds='1'
+		uci rename wireless.@wifi-iface[$index]=sta$index
+		uci commit wireless
+	fi
+}
+
+rtl8192eu_fix_ssid()
+{
+	i=0;
+	while [ "$i" -le "2" ]; do
+		local device=$(uci get wireless.@wifi-iface[$i].device)
+		if [ -z "$device" ]; then
+			break
+		fi
+		uci set wireless.$device.path="platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.2/1-1.1:2.0"
+
+		[ "$i" = "0" ] && fix_ssid_24g $device $i
+		[ "$i" = "1" ] && {
+			guest_network_init 
+
+			uci set wireless.$device.hwmode='11g'
+			uci set wireless.$device.channel='11'
+			uci set wireless.$device.htmode='HT40'
+
+			uci set wireless.$device.disabled='0'
+			uci set wireless.$device.band='2G_guest'
+			uci set wireless.$device.name='8192EU'
+
+			uci set wireless.wireless.@wifi-iface[$i].multi_ap='1'
+			uci commit wireless
+		}
+		[ "$i" = "2" ] && {
+			repeater_interface_init $device $i "8192EU"
+		}
+		i=$((i+1))
+	done
+
+	restart=1
+}
+
+rtl8192eue_fix_ssid()
+{
+	/sbin/wifi config
+
+	check_wireless_num
+	local name=$1
+	local phy=$2
+	ssid_prefix="GL-"${model}
+	ssid=${ssid_prefix}"-8192EU"
+	
+	local device=radio${num}
+	local index=$num
+
+# rtl8192eue ap
+	uci set wireless.$device.channel=6	
+	uci set wireless.$device.hwmode=11g
+	uci set wireless.$device.htmode=HT40
+	uci set wireless.$device.phy=$phy
+	uci set wireless.$device.path="platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0"
+	uci set wireless.$device.name=$name
+	uci set wireless.$device.band='2G'
+	uci set wireless.$device.disabled='0'
+		
+	#uci set wireless.@wifi-iface[$index].ifname=wlan${num}
+	if [ "$dflag" = "1" ];then 
+		uci set wireless.@wifi-iface[$index].ifname=wlan3
+	else
+		uci set wireless.@wifi-iface[$index].ifname=wlan0
+	fi
+	uci set wireless.@wifi-iface[$index].ssid=$ssid	
+	uci set wireless.@wifi-iface[$index].encryption=psk2
+	uci set wireless.@wifi-iface[$index].key=goodlife	
+
+	uci commit wireless
+
+# rtl8192eue repeater
+	num=$((num+1))
+	device=radio${num}
+	index=$num
+	local pphy=`echo $phy | tr -cd "[0-9]"`
+	pphy=$((pphy+1))
+
+	uci set wireless.$device.channel=6	
+	uci set wireless.$device.hwmode=11g
+	uci set wireless.$device.htmode=HT40
+	uci set wireless.$device.phy=phy$pphy
+	uci set wireless.$device.path="platform/soc/soc:internal-regs@d0000000/d005e000.usb/usb1/1-1/1-1.1/1-1.1:1.0"
+	uci set wireless.$device.name=$name
+	uci set wireless.$device.band='2G'
+	uci set wireless.$device.disabled='1'
+
+	#uci delete wireless.@wifi-iface[$index]
+	uci delete wireless.@wifi-iface[$index].ssid
+	uci set wireless.@wifi-iface[$index].mode=sta
+	uci set wireless.@wifi-iface[$index].wds='1'
+	uci rename wireless.@wifi-iface[$index]=sta$index
+
+: << !
+	if [ "$dflag" = "1" ];then 
+		uci set wireless.@wifi-iface[$index].ifname=wlan4
+	else
+		uci set wireless.@wifi-iface[$index].ifname=wlan1
+	fi
+	uci delete wireless.@wifi-iface[$index].ssid	
+	uci rename wireless.@wifi-iface[$index]=sta
+!
+	
+	num=$((num+1))
+	uci del wireless.radio${num}
+	uci del wireless.@wifi-iface[$num]
+
+	uci commit wireless
+	restart=1
+}
+
+rtlac_fix_ssid()
+{
+	/sbin/wifi config
+
+	sleep 1
+
+	local name=$1
+	local phy=$2
+	ssid_prefix="GL-"${model}
+	ssid=${ssid_prefix}"-"${name}
+
+	#[ "$flag" = "0" ] && {
+		#device=radio0 
+		#index=0
+	#}
+	#[ "$flag" = "1" ] && {
+		#device=radio2
+		#index=2
+	#}
+	check_wireless_num
+
+# rtl ap interface
+	local device=radio${num}
+	local index=$num
+
+	uci set wireless.$device.channel=36	
+	uci set wireless.$device.hwmode=11a
+	uci set wireless.$device.htmode=HT40
+	uci set wireless.$device.phy=$phy
+	uci set wireless.$device.name=$name
+	uci set wireless.$device.band='2G_5G'
+	uci set wireless.$device.disabled='0'
+		
+	#uci set wireless.@wifi-iface[$index].ifname=wlan${num}
+	if [ "$dflag" = "1" ] && [ -f "/tmp/8192EUE" ];then
+		uci set wireless.@wifi-iface[$index].ifname=wlan0
+	elif [ "$dflag" = "1" ];then
+		uci set wireless.@wifi-iface[$index].ifname=wlan3
+	else
+		uci set wireless.@wifi-iface[$index].ifname=wlan0
+	fi
+	uci set wireless.@wifi-iface[$index].ssid=$ssid	
+	uci set wireless.@wifi-iface[$index].encryption=psk2
+	uci set wireless.@wifi-iface[$index].key=goodlife	
+
+	uci commit wireless
+
+# rtl repeater interface
+	num=$((num+1))
+	local device=radio${num}
+	local index=$num
+	local pphy=`echo $phy | tr -cd "[0-9]"`
+	pphy=$((pphy+1))
+
+	uci set wireless.$device.channel=36	
+	uci set wireless.$device.hwmode=11a
+	uci set wireless.$device.htmode=HT40
+	uci set wireless.$device.phy=phy$pphy
+	uci set wireless.$device.name=$name
+	uci set wireless.$device.band='2G_5G'
+	uci set wireless.$device.disabled='1'
+
+	#uci delete wireless.@wifi-iface[$index]
+	uci delete wireless.@wifi-iface[$index].ssid
+	uci set wireless.@wifi-iface[$index].mode=sta
+	uci set wireless.@wifi-iface[$index].wds='1'
+	uci rename wireless.@wifi-iface[$index]=sta$index
+: << !
+	if [ "$dflag" = "1" ] && [ -f "/tmp/8192EUE" ];then
+		uci set wireless.@wifi-iface[$index].ifname=wlan1
+	elif [ "$dflag" = "1" ];then
+		uci set wireless.@wifi-iface[$index].ifname=wlan4
+	else
+		uci set wireless.@wifi-iface[$index].ifname=wlan1
+	fi
+	uci delete wireless.@wifi-iface[$index].ssid	
+	uci rename wireless.@wifi-iface[$index]=sta
+!
+
+	uci commit wireless
+
+	restart=1
+}
+
+iface_set_state()
+{
+	local driver=$1
+	local state=$2
+	local j=0
+	local name=''
+
+	while true
+	do
+		name=''
+		name=`uci -q get wireless.radio${j}.name`
+	    [ "$name" = "" ] && break
+		
+		if [ "$driver" = "$name" ];then
+			uci set wireless.radio${j}.disabled=$2
+			uci set wireless.radio${j}.phy=phy
+			uci set wireless.@wifi-iface[$j].ifname=wlan
+			uci commit wireless
+			break
+		fi
+
+		j=$((j+1))
+		#[ $j -gt 8 ] && break
+	done
+}
+
+iface_set_ifname()
+{
+	local driver=$1	
+	local name=''
+	local j=0
+
+	while true
+	do
+		name=''
+		name=`uci -q get wireless.radio${j}.name`
+	    [ "$name" = "" ] && break
+	
+		#if [ "$driver" = "8192EU" ];then
+		#	 j=$((j+2))
+		#fi
+
+
+		if [ "$driver" = "$name" ];then
+			if [ "$dflag" = 1 ];then
+				#uci set wireless.default_radio${j}.ifname=wlan3	
+				uci set wireless.@wifi-iface[$j].ifname=wlan3	
+				j=$((j+1))
+				#uci set wireless.default_radio${j}.ifname=wlan4	
+				uci set wireless.@wifi-iface[$j].ifname=wlan4	
+			else
+				#uci set wireless.default_radio${j}.ifname=wlan0	
+				uci set wireless.@wifi-iface[$j].ifname=wlan0	
+				j=$((j+1))
+				#uci set wireless.default_radio${j}.ifname=wlan4	
+				uci set wireless.@wifi-iface[$j].ifname=wlan1	
+			fi
+		fi
+		j=$((j+1))
+	done
+	
+	uci commit wireless
+}
+
+#若有内置rtl8192eu模块，必须第一个radio0是rtl8192eu
+rtl8192eu_handler()
+{
+	local tmp=""
+	tmp=`lsmod | grep 8192eu`
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8192eu.ko" ] && {
+		modprobe 8192eu.ko
+		sleep 2
+	}
+
+	local name=""
+	name=`uci -q get wireless.radio0.name`
+
+	local driver=''
+	driver=$(check_driver_current 8192EU)
+
+	if [ "$driver" != "" ];then
+		dflag=1
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8192EU" $driver
+			restart=1
+			return 0
+		fi
+		rtl8192eu_fix_ssid
+		set_wireless_phy "8192EU" $driver #第一次初始化当外置网卡和内置网卡8192eu一样,重新确定接口	
+	fi
+
+#	[ "$name" = "8192EU" ] && return 0
+#	[ "$driver" != "" ] && rtl8192eu_fix_ssid
+}
+
+rtl8192eue_handler(){
+	local tmp=""
+	tmp=`lsmod | grep 8192eu`
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8192eu.ko" ] && {
+		modprobe 8192eu.ko
+		sleep 2
+	}
+
+	local name=""
+	name=$(check_wireless_configure 8192EUE)
+
+	local driver=''
+	driver=$(check_driver_current 8192EUE)
+
+	[ "$driver" = "" ] && {
+		iface_set_state "8192EUE" "1"
+	}
+	
+	if [ "$driver" != "" ];then
+		[ "$global" = "" ] && touch "/tmp/8192EUE"
+
+		iface_set_state "8192EUE" "0"
+		iface_set_ifname "8192EUE"	
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8192EUE" $driver
+			restart=1
+			return 0
+		fi
+		rtl8192eue_fix_ssid "8192EUE" $driver
+	fi
+}
+
+rtl8821cu_handler()
+{
+	local tmp=""
+	tmp=`lsmod | grep 8821cu`
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8821cu.ko" ] && {
+		modprobe 8821cu.ko
+		sleep 2
+	}
+
+	local name=""
+	name=$(check_wireless_configure 8821CU)
+
+	local driver=''
+	driver=$(check_driver_current 8821CU)
+
+	[ "$driver" = "" ] && {
+		iface_set_state "8821CU" "1"
+	}
+
+	if [ "$driver" != "" ];then
+		iface_set_state "8821CU" "0"
+		iface_set_ifname "8821CU"	
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8821CU" $driver
+			restart=1
+			return 0
+		fi
+		rtlac_fix_ssid "8821CU" $driver
+	fi
+}
+
+rtl8812au_handler()
+{
+
+	local tmp=""
+	tmp=`lsmod | grep 8812au`
+
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8812au.ko" ] && {
+		modprobe 8812au.ko
+		sleep 2
+	}
+
+	local name=""
+	name=$(check_wireless_configure 8812AU)
+
+	local driver=''
+	driver=$(check_driver_current 8812AU)
+
+	[ "$driver" = "" ] && {
+		iface_set_state "8812AU" "1"
+	}
+
+	if [ "$driver" != "" ];then
+		iface_set_state "8812AU" "0"
+		iface_set_ifname "8812AU"	
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8812AU" $driver
+			restart=1
+			return 0
+		fi
+		rtlac_fix_ssid "8812AU" $driver
+	fi
+}
+
+rtl8821au_handler()
+{
+	local tmp=""
+	tmp=`lsmod | grep 8811au`
+
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8811au.ko" ] && {
+		modprobe 8811au.ko
+		sleep 2
+	}
+
+	local name=""
+	name=$(check_wireless_configure 8821AU)
+
+	local driver=''
+	driver=$(check_driver_current 8821AU)
+
+	[ "$driver" = "" ] && {
+		iface_set_state "8821AU" "1"
+	}
+
+	if [ "$driver" != "" ];then
+		iface_set_state "8821AU" "0"
+		iface_set_ifname "8821AU"	
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8821AU" $driver
+			restart=1
+			return 0
+		fi
+		rtlac_fix_ssid "8821AU" $driver
+	fi
+}
+
+rtl8811au_handler()
+{
+	local tmp=""
+	tmp=`lsmod | grep 8811au`
+
+	[ "$tmp" = "" ] && [ -f "/lib/modules/4.14.148/8811au.ko" ] && {
+		modprobe 8811au.ko
+		sleep 2
+	}	
+
+	local name=""
+	name=$(check_wireless_configure 8811AU)
+
+	local driver=''
+	driver=$(check_driver_current 8811AU)
+
+	[ "$driver" = "" ] && {
+		iface_set_state "8811AU" "1"
+	}
+
+	if [ "$driver" != "" ];then
+		iface_set_state "8811AU" "0"
+		iface_set_ifname "8811AU"	
+		if [ "$name" != ""  ];then 
+			[ "$interface" != "$driver" ] && set_wireless_phy "8811AU" $driver
+			restart=1
+			return 0
+		fi
+		rtlac_fix_ssid "8811AU" $driver
+	fi
+}
+
+mv1000_channel_list_init()
+{   
+	local num=0
+	local name=''
+	local phy=''
+	local driver=''
+	local dis=''
+	while true
+	do  
+		name=''
+		name=`uci -q get wireless.radio${num}.name`
+		[ "$name" = "" ] && break
+
+		phy=''
+		phy=`uci -q get wireless.radio${num}.phy`
+
+		dis=''
+		dis=`uci -q get wireless.@wifi-iface.disabled`
+		[ "$dis" = "1" ] && {
+			num=$((num+1))
+			continue
+		}
+		
+		driver=''
+		driver=`check_driver_current $name`
+		[ "$driver" = "" ] && {
+			num=$((num+1))
+			continue
+		}
+        
+		case $name in
+		"8192EU")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_channel
+			;;
+		"8192EUE")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_5G_channel
+			;;
+		"8821CU")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_5G_channel
+			;;
+		"8812AU")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_5G_channel
+			;;
+		"8821AU")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_5G_channel
+			;;
+		"8811AU")
+			iw phy phy${num} info | grep ' ..* MHz'|grep -v "disabled"|grep -v "no IR"|awk -F '[][]' '{print $2}' > /tmp/2G_5G_channel
+			;;
+		"") 
+			break
+			;;
+		esac
+        
+		num=$((num+1))
+    done
+}
+
+mv1000_check_8812EUE()
+{
+	local j=0
+	local dis=0
+	local ssid=''
+	
+	while true
+	do
+		dis=''
+		dis=`uci -q get wireless.radio${j}.disabled`
+		ssid=`uci -q get wireless.default_radio${j}.ssid`
+		if [ "$dis" = "1" ] && [ "$ssid" = "OpenWrt" ];then
+			uci del wireless.radio${j}	
+			uci del wireless.default_radio${j}
+		fi
+	
+		j=$((j+1))
+		[ $j -gt 8 ] && break
+	done
+	uci commit wireless
+
+	local driver_1=''
+	driver_1=$(check_driver_current 8192EU)
+	local driver_2=''
+	driver_2=$(check_driver_current 8192EUE)
+	local name=''
+	local ifname='' 
+	j=0
+
+	if [ "$driver_1" != "" ] && [ "$driver_2" != "" ];then
+		#ifname=`uci -q get wireless.default_radio0.ifname`
+		#[ "$ifname" != "wlan0" ] && return 0
+		if [ "$global" = "add" ] && [ ! -f "/tmp/8192EUE" ];then
+			return 0
+		fi
+
+		while true
+		do
+			name=''	
+			name=`uci -q get wireless.radio${j}.name`
+			[ "$name" = "" ] && break
+
+			[ "$name" = "8192EU" ] && {
+				uci set wireless.@wifi-iface[$j].ifname=wlan3
+				j=$((j+1))
+				uci set wireless.@wifi-iface[$j].ifname=wlan4
+				j=$((j+1))
+				uci set wireless.@wifi-iface[$j].ifname=wlan5
+			}
+
+			[ "$name" = "8192EUE" ] && {
+				uci set wireless.@wifi-iface[$j].ifname=wlan0
+				j=$((j+1))
+				uci set wireless.@wifi-iface[$j].ifname=wlan1
+			}
+			
+			j=$((j+1))
+		done
+	fi
+	uci commit wireless
+
+	if [ "$driver_1" != "" ] && [ "$driver_2" = "" ];then
+		ifname=`uci -q get wireless.default_radio0.ifname`
+		#[ "$ifname" = "wlan0" ] && return 0
+
+		if [ "$global" = "add" ] && [ -f "/tmp/8192EUE" ];then
+			return 0
+		fi
+
+		while true
+		do
+			name=''	
+			name=`uci -q get wireless.radio${j}.name`
+			[ "$name" = "" ] && break
+			
+
+			[ "$name" = "8192EU" ] && {
+				uci set wireless.@wifi-iface[$j].ifname=wlan0
+				j=$((j+1))
+				uci set wireless.@wifi-iface[$j].ifname=wlan1
+				break
+			}
+
+			j=$((j+1))
+		done
+	fi
+
+	uci commit wireless
+}
+
+mv1000_check_driver_state()
+{
+	local names="8192EU 8192EUE 8821CU 8812AU 8811AU 8821AU"
+
+	local driver=''
+	for var in $names
+	do
+		driver=''
+		driver=`check_driver_current $var`
+
+		if [ "$driver" = "" ];then
+			iface_set_state $var 1
+		fi
+	done
+}
+
+start(){
+	echo "---Info: gl_mv1000_wifi start... " >> /tmp/glmv1000log
+
+	read_factory_data
+
+	[ "$model" != "MV1000" ] && exit	
+	
+	global="$1"
+
+	touch /tmp/gl_mv1000_wifi.pid
+	[ -f "/etc/config/wireless" ] && mv1000_check_driver_state
+	[ ! -f "/etc/config/wireless" ] && /sbin/wifi config
+
+	rtl8192eu_handler
+	rtl8192eue_handler
+	rtl8821cu_handler
+	rtl8812au_handler
+	rtl8811au_handler
+	rtl8821au_handler
+
+	[ "$flag" != "8811AU" ] && rtl8821au_handler
+
+
+	mv1000_check_8812EUE
+	
+	#[ "$global" = "add" ] && {
+	#}
+
+	#[ "$restart" = "1" ] && [ "$global" = "" ] && {
+	#	wifi
+	#}
+
+	mv1000_channel_list_init
+	local sta=''
+	sta=`uci -q get wireless.sta.disabled`
+
+	if [ "$global" = "add" ];then
+		ubus call network reload
+		ubus call network.wireless up
+	elif [ "$sta" = "0" ];then
+		wifi 
+	fi
+
+	rm /tmp/gl_mv1000_wifi.pid
+}
+

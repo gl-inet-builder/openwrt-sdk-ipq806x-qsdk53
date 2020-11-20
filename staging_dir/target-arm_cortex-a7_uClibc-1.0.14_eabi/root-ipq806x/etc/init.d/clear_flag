@@ -1,0 +1,14 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+
+clear_first_time_flag() {
+	rm /tmp/first_time
+}
+
+start() {
+	clear_first_time_flag
+	
+	/etc/init.d/clear_flag disable
+}
+

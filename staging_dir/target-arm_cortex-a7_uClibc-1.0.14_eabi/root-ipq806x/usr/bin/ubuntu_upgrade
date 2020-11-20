@@ -1,0 +1,100 @@
+#!/bin/sh
+
+switch="0"
+save="1"
+ubuntu_upgrade_help()
+{
+	    cat <<EOF
+Usage:  $0 [<upgrade options>] <image file>
+        $0 [-s] [-n] <file>
+
+upgrade options
+		-s              switch ubuntu system after upgrade ubuntu system in the openwrt platform
+		-n              do not save configuration over reflash
+		-h|--help       display this help
+
+EOF
+}
+
+# parse options
+while [ -n "$1" ]; do
+    case "$1" in
+		-n)
+			save="0";;		
+        -h|--help)
+            ubuntu_upgrade_help;exit 1;;
+        *)
+            break;;
+    esac
+    shift
+done
+
+if [ "$#" = "0" ];then
+    ubuntu_upgrade_help;
+    exit 1;
+fi
+
+rootfs=""
+rootfs=`mount | grep mmcblk0p3 | awk '{print $3}'`
+
+part=""
+part=`ls /dev/ | grep "mmcblk0p3"`
+[ "$part" = "" ] && {
+	echo ""
+	echo "mmcblk0p3 is not exit,don't upgruade ubuntu."
+	echo ""
+}
+
+[ "$rootfs" = "" ] && {
+	/usr/sbin/mkfs.ext4 /dev/mmcblk0p3 <<EOF
+y
+EOF
+	mkdir -p /data
+	umount /data
+	sleep 1
+	mount -t ext4 /dev/mmcblk0p3 /data
+	sleep 1
+
+	rootfs=""
+	rootfs=`mount | grep mmcblk0p3 | awk '{print $3}'`
+}
+
+images="$1"
+[ ! -f "$images" ] && {
+	echo ""
+	echo "$1 is not exit! Please check $1 and ubuntu_upgrade --help"
+	echo ""
+	exit 1
+}
+
+echo ""
+echo "ubuntu system upgrade ..."
+if [ "$save" = "1" ];then
+	tar -cvf /tmp/save.tar -C ${rootfs}/etc/ . >> /dev/null
+	sleep 1
+else
+	rm ${rootfs}/* -rf
+fi
+
+tar -xzvf ${images} -C ${rootfs} >> /dev/null
+[ $? != 0 ] && {
+	echo ""
+	echo "upgrade fail!"
+	echo ""
+	exit 1
+}
+
+[ -f "/tmp/save.tar" ] && [ "$save" = "1" ] && {
+	tar -xvf /tmp/save.tar -C ${rootfs}/etc/ >> /dev/null
+}
+
+sync
+
+echo ""
+echo "Ubuntu is installed successfully."
+echo ""
+echo "To switch to Ubuntu: switch_system ubuntu"
+echo ""
+echo "After you switch the system,  the device will reboot automatically. 
+Then you can ssh to it: ssh root@[gateway-ip] The default password is 'goodlife'."
+echo ""

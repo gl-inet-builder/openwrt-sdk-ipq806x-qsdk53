@@ -1,0 +1,150 @@
+#!/bin/sh
+
+. /usr/share/libubox/jshn.sh
+. /lib/functions/gl_util.sh
+
+# Will exit if autoupdate is disabled
+enabled=$(uci get glconfig.autoupdate.enable)
+[ -z "$enabled" -o "$enabled" = "0" ] && return
+
+# Debug mode
+debug=$(uci get glconfig.autoupdate.debug)
+if [ "$debug" = "1" ]; then
+	sleep $((300))
+	interval=$((60))
+	one_hour=$((60))
+else
+	# We don't upgrade immediately when boot, so sleep 3 hour
+	sleep $((60*60*3))
+	one_day=$((60*60*24))
+	one_hour=$((60*60))
+	interval=$one_day
+fi
+model=$(awk -F': ' '/machine/ {print tolower($NF)}' /proc/cpuinfo |cut -d- -f2-)
+
+firmware_path=$(get_firmware_download_url)
+
+version=$(cat /etc/glversion)
+
+#compares two version
+has_new_version(){
+	current_version=$1 #e.g. 0.99-14-ath9k
+	newest_version=$2 #e.g. 0.99
+	#we only compare 1st and 2nd number, the 3rd are only description, will not compare
+	old_main=$(echo "$current_version"|awk -F- '{print $1}')
+	old_sub=$(echo "$current_version"|awk -F- '{print $2}')
+	new_main=$(echo "$newest_version"|awk -F- '{print $1}')
+	new_sub=$(echo "$newest_version"|awk -F- '{print $2}')
+	var=$(awk 'BEGIN{ print "'$old_main'"<"'$new_main'" }')
+	#main version is newer
+	if [ "$var" -eq 1 ]; then
+		echo yes
+		return
+	#main version is equal, compare sub version
+	elif [ "$old_main" = "$new_main" ]; then
+		var=$(awk 'BEGIN{ print "'$old_sub'"<"'$new_sub'" }')
+		#sub version is newer
+		if [ "$var" -eq 1 ]; then
+			echo yes
+			return
+		fi
+	fi
+
+	echo no
+
+}
+
+while [ true ]
+do
+	#first check if the firmware has been downloaded
+	if [ -f /tmp/auto_firmware.img ]; then
+		#we have the firmware, we need to wait until 4:00
+		preset_time=$(uci get glconfig.autoupdate.time) #e.g. 04:00
+		now_time=$(date +'%T') #e.g. 17:39:29
+
+		#we only compare hours, yes, it is time to update
+		if [ ${preset_time:0:2} = ${now_time:0:2} -o "$debug" = "1" ]; then
+			#let's do a md5 check
+			if [ $model = "x300b" -o $model = "mt1300" -o $model = "xe300" ];then
+				version_list=$(curl -f -Ls --connect-timeout 5 "${firmware_path}/list-sha256.txt")
+				md5=$(sha256sum /tmp/auto_firmware.img |awk '{print $1}')
+			else
+				version_list=$(curl -f -Ls --connect-timeout 5 "${firmware_path}/list.txt")
+				md5=$(md5sum /tmp/auto_firmware.img |awk '{print $1}')
+			fi
+			newest_version=$(echo "$version_list" |awk 'NR==1 {print $1}')
+			md5_check=$(echo "$version_list" |awk 'NR==1 {print $3}')
+
+			#json_load "{'root':$version_list}"
+			#json_select "root"
+			#json_select 1
+			#json_get_var newest_version "version"
+			#json_get_var md5_check "md5"
+			if [ "$md5" != "$md5_check" ]; then
+				logger -t glautoupdater "md5 verify failed, delete it."
+				rm -fr /tmp/auto_firmware.img
+				continue #md5 is not correct, continue to next cycle
+			fi
+
+			#the file is correct, let's update
+			logger -t glautoupdater "'-----------------------------------------"
+			logger -t glautoupdater "'-------will upgrade firmware-------------"
+			logger -t glautoupdater "'-----------------------------------------"
+			sleep 10
+			/usr/bin/flashleds &
+			killall dropbear lighttpd
+			if [ -n "$(check_support_save_installed_pkgs)" ]; then
+				/sbin/sysupgrade -k -c /tmp/auto_firmware.img
+			else
+				/sbin/sysupgrade -c /tmp/auto_firmware.img
+			fi
+			return
+		fi
+		#still not time to update
+
+	else
+
+		#check new versions
+		current_version=$(cat /etc/glversion) #e.g. 0.99-14-ath9k
+		if [ $model = "x300b" -o $model = "mt1300" -o $model = "xe300" ];then
+			version_list=$(curl -f -Ls --connect-timeout 5 "${firmware_path}/list-sha256.txt")
+		else
+			version_list=$(curl -f -Ls --connect-timeout 5 "${firmware_path}/list.txt")
+		fi
+		#json_load "{'root':$version_list}"
+		#json_select "root"
+		#json_select 1
+		#json_get_var newest_version "version"
+		#json_get_var md5_check "md5"
+		#json_get_var file "file"
+
+		newest_version=$(echo "$version_list" |awk 'NR==1 {print $1}')
+		has_new=$(has_new_version $current_version $newest_version)
+		file=$(echo "$version_list" |awk 'NR==1 {print $2}')
+		md5_check=$(echo "$version_list" |awk 'NR==1 {print $3}')
+
+		if [ "$has_new" = "yes" ]; then
+			logger -t glautoupdater "found new version, will download now"
+			curl -f -Ls --connect-timeout 5 "${firmware_path}/$file" -o /tmp/auto_firmware.img
+			#after download, do a md5 check
+			if [ $model = "x300b" -o $model = "mt1300" -o $model = "xe300" ];then
+				md5=$(sha256sum /tmp/auto_firmware.img |awk '{print $1}')
+			else
+				md5=$(md5sum /tmp/auto_firmware.img |awk '{print $1}')
+			fi
+			if [ "$md5" != "$md5_check" ]; then
+				logger -t glautoupdater "md5 verify failed, delete it.."
+				rm -fr /tmp/auto_firmware.img
+			else
+				#set to check per hour wait for 4:00am and continue to next cycle
+				interval=$one_hour
+				continue
+			fi
+		fi
+
+	fi
+
+	logger -t glautoupdater "wait $interval seconds to check again"
+	sleep $interval
+
+done

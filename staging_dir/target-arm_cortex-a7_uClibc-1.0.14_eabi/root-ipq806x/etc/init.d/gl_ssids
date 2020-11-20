@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+
+. /lib/functions.sh
+
+START=30
+USE_PROCD=1
+
+ssids_cb() {
+        uci set ssids.$1.disabled='0'
+        uci set ssids.$1.trycount='0'
+}
+
+config_load ssids
+config_foreach ssids_cb network
+uci commit ssids
+rm /etc/config/ssids_blacklist -rf

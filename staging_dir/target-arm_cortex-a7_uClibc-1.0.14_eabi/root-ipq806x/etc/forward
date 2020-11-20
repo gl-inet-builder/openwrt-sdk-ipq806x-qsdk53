@@ -1,0 +1,39 @@
+#!/bin/sh
+		
+NUMBER=
+MAIL=
+LOCAL=
+SENDER=`cat /etc/ssmtp/ssmtp.conf|grep ^AuthUser|grep -E -o [a-zA-Z0-9.-]{1,}@[a-zA-Z0-9.-]{1,}\.[a-z]{1,3}`
+SOURCE=`cat $2|grep ^From:|cut -d " " -f2`
+
+if [ "$1" = "RECEIVED" ]; then
+
+    line="$(awk '/^\s*$/{print NR}' $2|head -n 1)"
+    [ -z "$line" ] && exit 0
+
+    cat $2 | grep UCS2
+    if [ $? -eq 0 ]; then
+
+    TMPFILE=`mktemp /tmp/forward_XXXXXX`
+    sed -e "1,${line}d" $2 > $TMPFILE
+    MESSAGE="`gl_modem convert $TMPFILE`"
+
+    else
+
+    MESSAGE="`sed "1,${line}da" < $2`"
+
+    fi
+
+    if [ -n "$NUMBER" ];then
+
+    sendsms "$NUMBER" "${MESSAGE}" international
+
+    fi
+
+    if [ -n "$MAIL" ];then
+
+    echo -e "From: "$SENDER"\nSubject:${LOCAL} received a message from ${SOURCE}\nContent-Type: text/html;charset=UTF-8\n\n"$MESSAGE"" | ssmtp -vvv $MAIL
+
+    fi
+fi
+

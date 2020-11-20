@@ -1,0 +1,16 @@
+#!/bin/sh
+
+enable=`uci -q get ddns.glddns.enabled`
+if [ "$enable" = 1 -a "$INTERFACE" != "lan" ];then
+	case "$ACTION" in
+	ifup)
+	pidlist=$(cat /var/run/ddns/glddns.pid)
+	if [ -z "$pidlist" ];then
+		/etc/init.d/ddns enabled && /usr/lib/ddns/dynamic_dns_updater.sh -n "$INTERFACE" -- start
+	fi
+	;;
+	ifdown)
+	/usr/lib/ddns/dynamic_dns_updater.sh -n "$INTERFACE" -- stop
+	;;
+	esac
+fi

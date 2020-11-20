@@ -1,0 +1,14 @@
+# You must specify an interface or id,
+# If the id is not specified, RTTY will uses the MAC address
+# of the interface you specify as its ID, otherwise the id
+# you specify is used as its ID
+
+config rtty general
+	option  interface   'lan'
+	option  id          'ddns'
+#	option  description 'Description of my device'
+#	option  host        'your-server-host'  # Server host
+#	option  port        '5912'
+	option  ssl         1
+#	option  token       'your-token'
+	option  verbose     '1'

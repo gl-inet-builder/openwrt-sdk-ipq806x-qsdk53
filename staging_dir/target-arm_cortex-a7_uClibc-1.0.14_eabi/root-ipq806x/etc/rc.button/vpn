@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "$BUTTON ${ACTION}" > /dev/console
+ /usr/bin/switchaction &
+

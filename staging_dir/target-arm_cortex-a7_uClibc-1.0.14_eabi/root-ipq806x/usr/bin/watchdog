@@ -1,0 +1,18 @@
+#!/bin/sh
+
+GPIO=2
+
+rm -rf /tmp/watchdog.pid 
+echo $$ >/tmp/watchdog.pid
+feed_dog()
+{
+	echo 1 >/sys/class/gpio/gpio${GPIO}/value
+	sleep  1
+	echo 0 >/sys/class/gpio/gpio${GPIO}/value
+	sleep  1
+}
+
+while true; do
+        feed_dog
+done
+

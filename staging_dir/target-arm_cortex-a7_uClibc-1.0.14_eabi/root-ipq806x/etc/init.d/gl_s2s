@@ -1,0 +1,255 @@
+#!/bin/sh /etc/rc.common
+#
+# This is free software, licensed under the GNU General Public License v3.
+# See /LICENSE for more information.
+#
+
+START=99
+
+USE_PROCD=1
+
+IP4="ip -4"
+IP6="ip -6"
+
+WG=/usr/bin/wg
+
+wireguard_setup_peer() {
+	local section="$1"
+
+	local endpoint
+	local keepalive
+	local public_key
+	local allowed_ips
+	local preshared_key
+
+	config_get endpoint      "${section}" "endpoint"
+	config_get keepalive     "${section}" "keepalive"
+	config_get public_key    "${section}" "public_key"
+	config_get allowed_ips   "${section}" "allowed_ips"
+	config_get preshared_key "${section}" "preshared_key"
+
+	# Peer configuration
+	echo "" >> "${wg_cfg}"
+	echo "[Peer]" >> "${wg_cfg}"
+	echo "PublicKey = ${public_key}" >> "${wg_cfg}"
+	[ -n "${preshared_key}" ] && echo "PresharedKey = ${preshared_key}" >> "${wg_cfg}"
+    	[ -n "${endpoint}" ] && echo "Endpoint = ${endpoint}" >> "${wg_cfg}"
+	[ -n "${keepalive}" ] && echo "PersistentKeepalive = ${keepalive}" >> "${wg_cfg}"
+
+	for allowed_ip in ${allowed_ips}; do
+		echo "AllowedIPs = ${allowed_ip}" >> "${wg_cfg}"
+	done
+}
+
+wireguard_setup_interface() {
+	local config="$1"
+
+	local wg_dir="/tmp/wireguard"
+	local wg_cfg="${wg_dir}/${config}.conf"
+
+	local mtu
+	local metric
+	local fwmark
+	local ipaddr
+	local private_key
+	local listen_port
+
+	config_get mtu         "${config}" "mtu"
+	config_get metric      "${config}" "metric" "80"
+	config_get fwmark      "${config}" "fwmark"
+	config_get address     "${config}" "address"
+	config_get private_key "${config}" "private_key"
+	config_get listen_port "${config}" "listen_port"
+
+	ip link del dev wg1 2>/dev/null
+	ip link add dev wg1 type wireguard
+
+	[ -n "${mtu}" ] && ip link set mtu "${mtu}" dev wg1
+
+	# Add ip addresses
+	for addr in ${address}; do
+		case "${addr}" in
+		*:*/*)
+			$IP6 address add dev wg1 ${addr%%/*}/${addr##*/} > /dev/null 2>&1
+			;;
+		*.*/*)
+			$IP4 address add dev wg1 ${addr%%/*}/${addr##*/} > /dev/null 2>&1
+			;;
+		*:*)
+			$IP6 address add dev wg1 ${addr%%/*}/128 > /dev/null 2>&1
+			;;
+		*.*)
+			$IP4 address add dev wg1 ${addr%%/*}/32 > /dev/null 2>&1
+			;;
+		esac
+	done
+
+	# Generate configuration file
+	umask 077
+	mkdir -p "${wg_dir}"
+
+	echo "[Interface]" > "${wg_cfg}"
+	echo "PrivateKey = ${private_key}" >> "${wg_cfg}"
+	[ -n "$listen_port" ] && echo "ListenPort = ${listen_port}" >> "${wg_cfg}"
+	[ -n "$fwmark" ] && echo "FwMark = ${fwmark}" >> "${wg_cfg}"
+
+	config_foreach wireguard_setup_peer peer
+
+	# Apply configuration file
+	${WG} setconf wg1 "${wg_cfg}"
+	if [ $? -ne 0 ]; then
+		ip link del dev wg1 > /dev/null 2>&1
+		rm -f "${wg_cfg}" > /dev/null 2>&1
+		exit 1
+	fi
+
+	# Delete temporary configuration file
+	rm -f "${wg_cfg}" > /dev/null 2>&1
+
+	# Setup WireGuard interface
+	ip link set up dev wg1
+
+	# Add ip route
+	wg show wg1 allowed-ips | sort -nr -k 2 -t / | \
+		while IFS=$'\t' read -r key addresses; do
+			for addr in ${addresses}; do
+				case "${addr}" in
+				*:*/*)
+					$IP6 route add ${addr%%/*}/${addr##*/} dev wg1 metric ${metric} > /dev/null 2>&1
+					;;
+				*.*/*)
+					$IP4 route add ${addr%%/*}/${addr##*/} dev wg1 metric ${metric} > /dev/null 2>&1
+					;;
+				*:*)
+					$IP6 route add ${addr%%/*}/128 dev wg1 metric ${metric} > /dev/null 2>&1
+					;;
+				*.*)
+					$IP4 route add ${addr%%/*}/32 dev wg1 metric ${metric} > /dev/null 2>&1
+					;;
+				esac
+			done
+		done
+}
+
+cleanup() {
+	for pid in `pidof "echo_server"`; do                
+		kill -KILL ${pid}
+	done
+}
+
+flush_rules() {
+	iptables-save -c | grep -v "GL_S2S" | iptables-restore -c
+	FWI=$(uci get firewall.gls2s.path 2>/dev/null)
+	[ -n "$FWI" ] && echo '# firewall include file' >$FWI
+	return 0
+}
+
+ipt_filter() {
+	iptables-restore -n <<-EOF
+	*filter
+	:GL_S2S_DEST_ACCEPT - [0:0]
+	:GL_S2S_FORWARD - [0:0]
+	:GL_S2S_INPUT - [0:0]
+	:GL_S2S_OUTPUT - [0:0]
+	:GL_S2S_SRC_ACCEPT - [0:0]
+	-I INPUT -i wg1 -j GL_S2S_INPUT
+	-I FORWARD -i wg1 -j GL_S2S_FORWARD
+	-I OUTPUT -o wg1 -j GL_S2S_OUTPUT
+	-I zone_lan_forward -j GL_S2S_DEST_ACCEPT
+	-I GL_S2S_DEST_ACCEPT -o wg1 -j ACCEPT
+	-I GL_S2S_FORWARD -j zone_wan_dest_ACCEPT
+	-I GL_S2S_FORWARD -j zone_lan_dest_ACCEPT
+	-I GL_S2S_FORWARD -j GL_S2S_DEST_ACCEPT
+	-I GL_S2S_INPUT -j GL_S2S_SRC_ACCEPT
+	-I GL_S2S_OUTPUT -j GL_S2S_DEST_ACCEPT
+	-I GL_S2S_SRC_ACCEPT -i wg1 -j ACCEPT
+	COMMIT
+	*nat
+	:GL_S2S_POSTROUTING - [0:0]
+	-I POSTROUTING -o wg1 -j GL_S2S_POSTROUTING
+	-I GL_S2S_POSTROUTING -j MASQUERADE
+	COMMIT
+EOF
+	return $?
+}
+
+export_ipt_rules() {
+	[ -n "$FWI" ] || return 0
+	cat <<-CAT >>$FWI
+	iptables-save -c | grep -v "GL_S2S" | iptables-restore -c
+	iptables-restore -n <<-EOF
+	$(iptables-save | grep -E "GL_S2S|^\*|^COMMIT" |\
+		sed -e "s/^-A \(INPUT\|FORWARD\|OUTPUT\)/-I \1 1/")
+	EOF
+CAT
+        return $?
+}
+
+service_triggers()
+{                     
+	procd_add_reload_trigger "gl_s2s"
+} 
+start_service() {
+	local enable
+	local firewall
+	local failover
+
+	if ! command -v ${WG} > /dev/null 2>&1; then
+		logger -t "wireguard" "error: missing wireguard-tools (${WG})"
+		return 0
+	fi
+
+	config_load gl_s2s
+
+	config_get enable global enable
+	[ "$enable" = "1" ] || return 0
+
+	cleanup
+
+	config_foreach wireguard_setup_interface interface
+
+	config_get firewall global firewall
+	[ "$firewall" = "1" ] && {
+		flush_rules && ipt_filter && export_ipt_rules
+	}
+
+	failover=$(uci get mwan3.globals.enabled 2>/dev/null)
+	[ "$failover" = "1" ] && {
+		. /lib/mwan3/mwan3.sh
+
+		mwan3_set_connected_iptables
+	}
+
+	[ -e "/etc/hotplug.d/iface/21-mirrir_route" ] && {
+		env -i ACTION="ifup" /etc/hotplug.d/iface/21-mirrir_route > /dev/null 2>&1
+	}
+
+	# Register timer
+	ubus call glcrond create '{"name": "s2s_watcher", "interval": 20}'
+}
+
+stop_service() {
+	local firewall
+	local failover
+
+	ip link del dev wg1 > /dev/null 2>&1
+
+	config_load gl_s2s
+
+	config_get firewall global firewall
+	[ "$firewall" = "1" ] && flush_rules
+
+	failover=$(uci get mwan3.globals.enabled 2>/dev/null)
+	[ "$failover" = "1" ] && {
+		. /lib/mwan3/mwan3.sh
+
+		mwan3_set_connected_iptables
+	}
+
+	[ -e "/etc/hotplug.d/iface/21-mirrir_route" ] && {
+		env -i ACTION="ifdown" /etc/hotplug.d/iface/21-mirrir_route > /dev/null 2>&1
+	}
+
+	# Unregister timer
+	ubus call glcrond destroy '{"name": "s2s_watcher"}'
+}

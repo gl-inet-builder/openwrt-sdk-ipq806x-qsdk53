@@ -53,6 +53,7 @@ extern int toUciValue(char *from, char*to);
 extern char* generate_token();
 extern char* strtok_new(char * string, char const * delimiter);
 
+extern void increase_escape_function(char *in, char *out, int count);
 
 #include <stdbool.h>
 bool check_char_in_str(const char *str, const char ch);
@@ -65,6 +66,8 @@ char *str_to_lower(char *str);
 char* str_trim_white_space(char *str);
 void str_remove_quotation_marks(char *ssid, char *str);
 bool str_check_ip_format(char *str) ;
+
+void del_char(char *string,char c);
 
 #ifdef __cplusplus
 }

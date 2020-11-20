@@ -6,11 +6,11 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2001 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 2001 - 2017, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
-# are also available at http://curl.haxx.se/docs/copyright.html.
+# are also available at https://curl.haxx.se/docs/copyright.html.
 #
 # You may opt to use, copy, modify, merge, publish, distribute and/or sell
 # copies of the Software, and permit persons to whom the Software is
@@ -44,6 +44,7 @@ Available values for OPTION include:
   --libs      library linking information
   --prefix    curl install prefix
   --protocols newline separated list of enabled protocols
+  --ssl-backends output the SSL backends libcurl was built to support
   --static-libs static libcurl library linking information
   --version   output version information
   --vernum    output the version information as a number (hexadecimal)
@@ -71,7 +72,7 @@ while test $# -gt 0; do
         ;;
 
     --ca)
-        echo ""
+        echo "/etc/ssl/certs/ca-certificates.crt"
         ;;
 
     --cc)
@@ -95,7 +96,7 @@ while test $# -gt 0; do
         ;;
 
     --version)
-        echo libcurl 7.40.0
+        echo libcurl 7.60.0
         exit 0
         ;;
 
@@ -107,20 +108,20 @@ while test $# -gt 0; do
         # dash as that's used for things like version 1.2.3-CVS
         cpatch=`echo $checkfor | cut -d. -f3 | cut -d- -f1`
         checknum=`echo "$cmajor*256*256 + $cminor*256 + ${cpatch:-0}" | bc`
-        numuppercase=`echo 072800 | tr 'a-f' 'A-F'`
+        numuppercase=`echo 073c00 | tr 'a-f' 'A-F'`
         nownum=`echo "obase=10; ibase=16; $numuppercase" | bc`
 
         if test "$nownum" -ge "$checknum"; then
           # silent success
           exit 0
         else
-          echo "requested version $checkfor is newer than existing 7.40.0"
+          echo "requested version $checkfor is newer than existing 7.60.0"
           exit 1
         fi
         ;;
 
     --vernum)
-        echo 072800
+        echo 073c00
         exit 0
         ;;
 
@@ -148,15 +149,18 @@ while test $# -gt 0; do
            CURLLIBDIR=""
         fi
         if test "Xyes" = "Xyes"; then
-          echo ${CURLLIBDIR}-lcurl -lpolarssl
+          echo ${CURLLIBDIR}-lcurl -lmbedtls -lmbedx509 -lmbedcrypto
         else
           echo ${CURLLIBDIR}-lcurl
         fi
         ;;
+    --ssl-backends)
+        echo "mbedTLS"
+        ;;
 
     --static-libs)
         if test "Xyes" != "Xno" ; then
-          echo ${exec_prefix}/lib/libcurl.a -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lpolarssl
+          echo ${exec_prefix}/lib/libcurl.a -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/lib -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/lib -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib -Wl,--gc-sections -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -lmbedtls -lmbedx509 -lmbedcrypto
         else
           echo "curl was built with static libraries disabled" >&2
           exit 1
@@ -164,7 +168,7 @@ while test $# -gt 0; do
         ;;
 
     --configure)
-        echo " '--target=arm-openwrt-linux' '--host=arm-openwrt-linux' '--build=x86_64-linux-gnu' '--program-prefix=' '--program-suffix=' '--prefix=/usr' '--exec-prefix=/usr' '--bindir=/usr/bin' '--sbindir=/usr/sbin' '--libexecdir=/usr/lib' '--sysconfdir=/etc' '--datadir=/usr/share' '--localstatedir=/var' '--mandir=/usr/man' '--infodir=/usr/info' '--disable-nls' '--disable-debug' '--disable-ares' '--enable-shared' '--enable-static' '--disable-manual' '--without-ca-bundle' '--without-nss' '--without-libmetalink' '--without-librtmp' '--enable-ipv6' '--without-axtls' '--without-cyassl' '--without-gnutls' '--without-ssl' '--with-polarssl=/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr' '--with-ca-path=/etc/ssl/certs' '--without-libidn' '--without-libssh2' '--without-zlib' '--disable-dict' '--enable-file' '--enable-ftp' '--disable-gopher' '--enable-http' '--disable-imap' '--disable-ldap' '--disable-ldaps' '--disable-pop3' '--disable-rtsp' '--disable-smb' '--disable-smtp' '--disable-telnet' '--disable-tftp' '--enable-cookies' '--disable-crypto-auth' '--disable-libcurl-option' '--enable-proxy' '--disable-threaded-resolver' '--disable-tls-srp' '--disable-unix-sockets' '--disable-verbose' 'build_alias=x86_64-linux-gnu' 'host_alias=arm-openwrt-linux' 'target_alias=arm-openwrt-linux' 'CC=arm-openwrt-linux-uclibcgnueabi-gcc' 'CFLAGS=-Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft -Wl,-z,now -Wl,-z,relro -fpic ' 'LDFLAGS=-L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/lib -L/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib ' 'CPPFLAGS=-I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/include -I/home/lancer/workspace/gl-image/qsdk53/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/include '"
+        echo " '--target=arm-openwrt-linux' '--host=arm-openwrt-linux' '--build=x86_64-linux-gnu' '--program-prefix=' '--program-suffix=' '--prefix=/usr' '--exec-prefix=/usr' '--bindir=/usr/bin' '--sbindir=/usr/sbin' '--libexecdir=/usr/lib' '--sysconfdir=/etc' '--datadir=/usr/share' '--localstatedir=/var' '--mandir=/usr/man' '--infodir=/usr/info' '--disable-nls' '--disable-debug' '--disable-ares' '--enable-shared' '--enable-static' '--disable-manual' '--without-nss' '--without-libmetalink' '--without-librtmp' '--without-libidn' '--enable-ipv6' '--without-cyassl' '--without-gnutls' '--without-ssl' '--with-mbedtls=/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr' '--without-ca-path' '--with-ca-bundle=/etc/ssl/certs/ca-certificates.crt' '--without-libidn2' '--without-libssh2' '--without-zlib' '--without-nghttp2' '--disable-dict' '--enable-file' '--enable-ftp' '--disable-gopher' '--enable-http' '--disable-imap' '--disable-ldap' '--disable-ldaps' '--disable-pop3' '--disable-rtsp' '--disable-smb' '--disable-smtp' '--disable-telnet' '--disable-tftp' '--enable-cookies' '--disable-crypto-auth' '--disable-libcurl-option' '--enable-proxy' '--disable-threaded-resolver' '--disable-tls-srp' '--disable-unix-sockets' '--disable-verbose' 'build_alias=x86_64-linux-gnu' 'host_alias=arm-openwrt-linux' 'target_alias=arm-openwrt-linux' 'CC=arm-openwrt-linux-uclibcgnueabi-gcc' 'CFLAGS=-Os -pipe -march=armv7-a -mtune=cortex-a7 -fno-caller-saves -fhonour-copts -Wno-error=unused-but-set-variable -Wno-error=unused-result -mfloat-abi=soft -Wl,-z,now -Wl,-z,relro -fpic -ffunction-sections -fdata-sections ' 'LDFLAGS=-L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/lib -L/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/lib -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/lib -L/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/lib -Wl,--gc-sections ' 'CPPFLAGS=-I/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/usr/include -I/home/han/ib/q53_sdk.3/staging_dir/target-arm_cortex-a7_uClibc-1.0.14_eabi/include -I/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/usr/include -I/home/han/ib/q53_sdk.3/staging_dir/toolchain-arm_cortex-a7_gcc-4.8-linaro_uClibc-1.0.14_eabi/include -DCURL_DISABLE_NTLM '"
         ;;
 
     *)

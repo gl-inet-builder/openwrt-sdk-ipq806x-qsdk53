@@ -1,0 +1,6 @@
+config general general
+	option initted 0
+
+config sync 'confs'
+	list conf '/etc/shadow'
+	list conf '/etc/config/glconfig'
