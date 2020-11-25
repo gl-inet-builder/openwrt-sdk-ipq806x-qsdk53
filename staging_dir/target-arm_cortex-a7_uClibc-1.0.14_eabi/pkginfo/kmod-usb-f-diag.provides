@@ -1,0 +1,8 @@
+crc-ccitt.ko
+diagchar.ko
+libcomposite.ko
+nls_base.ko
+udc-core.ko
+usb-common.ko
+usb_f_diag.ko
+usbcore.ko

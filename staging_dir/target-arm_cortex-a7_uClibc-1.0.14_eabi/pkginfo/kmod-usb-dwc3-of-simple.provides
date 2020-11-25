@@ -1,0 +1,6 @@
+dwc3-of-simple.ko
+dwc3.ko
+nls_base.ko
+udc-core.ko
+usb-common.ko
+usbcore.ko
